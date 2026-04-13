@@ -14,6 +14,10 @@ on:
         description: 'Build Architecture'
         default: x86
         type: string
+      sdl3:
+        description: 'Use SDL3 instead of DirectInput/Win32'
+        type: boolean
+        default: false
       upload:
         description: Upload resulting artifact?
         type: boolean
@@ -99,21 +103,22 @@ jobs:
          dir /S /B DXSDK
 
     - name: Configure
-      run: cmake . --preset windows-${{ inputs.architecture }}-${{ inputs.configuration }}
+      run: cmake . --preset windows-${{ inputs.architecture }}${{ inputs.sdl3 && '-sdl3' || '' }}-${{ inputs.configuration }}
         -DORBITER_MAKE_DOC=${{ inputs.docs && 'ON' || 'OFF' }}
         -DDXSDK_DIR:PATH="${{ github.workspace }}\\DXSDK"
 
     - name: Build
-      run: cmake --build --preset windows-${{ inputs.architecture }}-${{ inputs.configuration }} --jobs 2
+      run: cmake --build --preset windows-${{ inputs.architecture }}${{ inputs.sdl3 && '-sdl3' || '' }}-${{ inputs.configuration }} --jobs 2
 
     - name: Test
-      run: ctest --preset windows-${{ inputs.architecture }}-${{ inputs.configuration }} --parallel 2
+      run: ctest --preset windows-${{ inputs.architecture }}${{ inputs.sdl3 && '-sdl3' || '' }}-${{ inputs.configuration }} --parallel 2
 
     - name: Install
-      working-directory: ${{ github.workspace }}/out/build/windows-${{ inputs.architecture }}-${{ inputs.configuration }}
+      working-directory: ${{ github.workspace }}/out/build/windows-${{ inputs.architecture }}${{ inputs.sdl3 && '-sdl3' || '' }}-${{ inputs.configuration }}
       run: cmake --install . --prefix ${{ github.workspace }}/out/install
 
     - name: List exports
+      if: ${{ !inputs.sdl3 }}
       shell: cmd
       run: |
         dumpbin /EXPORTS ${{ github.workspace }}\out\install\Orbiter\Modules\Server\Orbiter.exe /OUT:exports_tmp0.txt
@@ -123,7 +128,7 @@ jobs:
         del /Q exports_tmp*.txt
 
     - name: Diff exports with Orbiter 2016
-      if: ${{ inputs.architecture == 'x86' }}
+      if: ${{ !inputs.sdl3 && inputs.architecture == 'x86' }}
       shell: cmd
       continue-on-error: true
       run: git diff -U0 --ignore-cr-at-eol --ignore-space-at-eol --no-index exports.2016.txt exports.txt

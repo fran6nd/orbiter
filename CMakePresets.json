@@ -146,7 +146,6 @@
       "inherits": "windows-x64-debug",
       "cacheVariables": {
         "ORBITER_USE_SDL3": "ON",
-        "ORBITER_BUILD_D3D9CLIENT": "OFF",
         "CMAKE_BUILD_TYPE": "Debug"
       }
     },

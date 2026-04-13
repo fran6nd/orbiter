@@ -16,9 +16,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        architecture: [x64, x86]
-        os: [windows-2022]
+        include:
+          - architecture: x64
+            os: windows-2022
+          - architecture: x86
+            os: windows-2022
+          - architecture: x64
+            os: windows-2022
+            sdl3: sdl3
     uses: ./.github/workflows/reusable-build.yml
     with:
       os: ${{ matrix.os }}
       architecture: ${{ matrix.architecture }}
+      sdl3: ${{ matrix.sdl3 == 'sdl3' }}
