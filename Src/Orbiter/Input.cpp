@@ -173,9 +173,10 @@ HRESULT DInput::SetJoystickProperties()
     HRESULT hr;
     DIPROPRANGE diprg;
     DIPROPDWORD diprw;
-    joyprop.bRudder   = false;
-    joyprop.bThrottle = false;
+    joyprop.bRudder      = false;
+    joyprop.bThrottle    = false;
     joyprop.ThrottleAxis = ThrottleAxis::None;
+    joyprop.ThrottleOfs  = 0;
     Config *pcfg = orbiter->Cfg();
 
     // x-axis range and deadzone
@@ -208,23 +209,27 @@ HRESULT DInput::SetJoystickProperties()
     diprw.dwData = pcfg->CfgJoystickPrm.Deadzone;
     if (dev->SetProperty(DIPROP_DEADZONE, &diprw.diph) != DI_OK) joyprop.bRudder = false;
 
-    // Throttle axis selection
+    // Throttle axis selection — set both ThrottleAxis (new) and ThrottleOfs (legacy).
+    DIJOYSTATE2 js2 = {};
     DWORD thaxis;
     switch (pcfg->CfgJoystickPrm.ThrottleAxis) {
     case 1:
         LOGOUT("Joystick throttle: Z-AXIS");
         thaxis = DIJOFS_Z;
         joyprop.ThrottleAxis = ThrottleAxis::Z;
+        joyprop.ThrottleOfs  = (int)((BYTE*)&js2.lZ - (BYTE*)&js2);
         break;
     case 2:
         LOGOUT("Joystick throttle: SLIDER 0");
         thaxis = DIJOFS_SLIDER(0);
         joyprop.ThrottleAxis = ThrottleAxis::Slider0;
+        joyprop.ThrottleOfs  = (int)((BYTE*)&js2.rglSlider[0] - (BYTE*)&js2);
         break;
     case 3:
         LOGOUT("Joystick throttle: SLIDER 1");
         thaxis = DIJOFS_SLIDER(1);
         joyprop.ThrottleAxis = ThrottleAxis::Slider1;
+        joyprop.ThrottleOfs  = (int)((BYTE*)&js2.rglSlider[1] - (BYTE*)&js2);
         break;
     default:
         joyprop.bThrottle = false;

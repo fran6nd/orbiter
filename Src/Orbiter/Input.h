@@ -44,8 +44,12 @@ public:
     struct JoyProp {
         bool  bThrottle  = false;
         bool  bRudder    = false;
+        // ThrottleAxis is the canonical cross-platform field.
+        // ThrottleOfs retains the original byte-offset-into-DIJOYSTATE2 value
+        // so that existing plugins reading joyprop.ThrottleOfs keep working.
         orbiter::JoystickState::ThrottleAxis ThrottleAxis =
             orbiter::JoystickState::ThrottleAxis::None;
+        int ThrottleOfs = 0;
     };
 
 #if ORBITER_DINPUT
