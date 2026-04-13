@@ -1,6 +1,14 @@
 name: On Push (Linux)
 
-on:  
+# Placeholder for future native Linux SDL3 builds.
+#
+# When the platform-abstraction layer is complete (Win32 message-pump and
+# HWND references fully removed from the SDL3 code path) this workflow will
+# be extended to run a real cmake --preset linux-x64-sdl3-release build on
+# ubuntu-latest using gcc/clang + SDL3 FetchContent.  Until then it just
+# checks out the repo so the workflow shows green and unblocks the branch.
+
+on:
   push:
     branches:
       - linux
@@ -15,6 +23,6 @@ jobs:
   build:
     name: Push
     runs-on: ubuntu-latest
-    steps: # Dummy workflow to later be replaced with actual
+    steps:
     - name: Checkout
       uses: actions/checkout@v6

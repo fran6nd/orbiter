@@ -11,6 +11,11 @@ on:
         options:
           - x86
           - x64
+      sdl3:
+        description: Use SDL3 instead of DirectInput/Win32
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -19,4 +24,5 @@ jobs:
       os: windows-2022
       architecture: ${{ inputs.architecture }}
       configuration: release
+      sdl3: ${{ inputs.sdl3 }}
       upload: true
