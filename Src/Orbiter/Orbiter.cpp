@@ -190,7 +190,7 @@ int _matherr(struct _exception *except )
 
 int main (int argc, char *argv[])
 {
-	if (!SDL_Init(SDL_INIT_EVENTS)) {
+	if (!SDL_Init(SDL_INIT_EVENTS | SDL_INIT_JOYSTICK)) {
 		fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
 		return 1;
 	}
@@ -1191,6 +1191,130 @@ void Orbiter::ScreenToClient (POINT *pt) const
 #endif
 }
 
+#ifdef ORBITER_USE_SDL3
+// ---------------------------------------------------------------------------
+// SDLScancodeToOAPIKey()
+// Maps an SDL3 scancode to the matching OAPI_KEY_* value (DirectInput Set-1
+// scan code).  Uses runtime initialisation because MSVC does not support
+// out-of-order designated array initialisers in C++.
+// ---------------------------------------------------------------------------
+static DWORD SDLScancodeToOAPIKey(SDL_Scancode sc)
+{
+	static DWORD tbl[512] = {};
+	static bool  init     = false;
+	if (!init) {
+		init = true;
+		tbl[SDL_SCANCODE_ESCAPE]        = 0x01;
+		tbl[SDL_SCANCODE_1]             = 0x02;
+		tbl[SDL_SCANCODE_2]             = 0x03;
+		tbl[SDL_SCANCODE_3]             = 0x04;
+		tbl[SDL_SCANCODE_4]             = 0x05;
+		tbl[SDL_SCANCODE_5]             = 0x06;
+		tbl[SDL_SCANCODE_6]             = 0x07;
+		tbl[SDL_SCANCODE_7]             = 0x08;
+		tbl[SDL_SCANCODE_8]             = 0x09;
+		tbl[SDL_SCANCODE_9]             = 0x0A;
+		tbl[SDL_SCANCODE_0]             = 0x0B;
+		tbl[SDL_SCANCODE_MINUS]         = 0x0C;
+		tbl[SDL_SCANCODE_EQUALS]        = 0x0D;
+		tbl[SDL_SCANCODE_BACKSPACE]     = 0x0E;
+		tbl[SDL_SCANCODE_TAB]           = 0x0F;
+		tbl[SDL_SCANCODE_Q]             = 0x10;
+		tbl[SDL_SCANCODE_W]             = 0x11;
+		tbl[SDL_SCANCODE_E]             = 0x12;
+		tbl[SDL_SCANCODE_R]             = 0x13;
+		tbl[SDL_SCANCODE_T]             = 0x14;
+		tbl[SDL_SCANCODE_Y]             = 0x15;
+		tbl[SDL_SCANCODE_U]             = 0x16;
+		tbl[SDL_SCANCODE_I]             = 0x17;
+		tbl[SDL_SCANCODE_O]             = 0x18;
+		tbl[SDL_SCANCODE_P]             = 0x19;
+		tbl[SDL_SCANCODE_LEFTBRACKET]   = 0x1A;
+		tbl[SDL_SCANCODE_RIGHTBRACKET]  = 0x1B;
+		tbl[SDL_SCANCODE_RETURN]        = 0x1C;
+		tbl[SDL_SCANCODE_LCTRL]         = 0x1D;
+		tbl[SDL_SCANCODE_A]             = 0x1E;
+		tbl[SDL_SCANCODE_S]             = 0x1F;
+		tbl[SDL_SCANCODE_D]             = 0x20;
+		tbl[SDL_SCANCODE_F]             = 0x21;
+		tbl[SDL_SCANCODE_G]             = 0x22;
+		tbl[SDL_SCANCODE_H]             = 0x23;
+		tbl[SDL_SCANCODE_J]             = 0x24;
+		tbl[SDL_SCANCODE_K]             = 0x25;
+		tbl[SDL_SCANCODE_L]             = 0x26;
+		tbl[SDL_SCANCODE_SEMICOLON]     = 0x27;
+		tbl[SDL_SCANCODE_APOSTROPHE]    = 0x28;
+		tbl[SDL_SCANCODE_GRAVE]         = 0x29;
+		tbl[SDL_SCANCODE_LSHIFT]        = 0x2A;
+		tbl[SDL_SCANCODE_BACKSLASH]     = 0x2B;
+		tbl[SDL_SCANCODE_Z]             = 0x2C;
+		tbl[SDL_SCANCODE_X]             = 0x2D;
+		tbl[SDL_SCANCODE_C]             = 0x2E;
+		tbl[SDL_SCANCODE_V]             = 0x2F;
+		tbl[SDL_SCANCODE_B]             = 0x30;
+		tbl[SDL_SCANCODE_N]             = 0x31;
+		tbl[SDL_SCANCODE_M]             = 0x32;
+		tbl[SDL_SCANCODE_COMMA]         = 0x33;
+		tbl[SDL_SCANCODE_PERIOD]        = 0x34;
+		tbl[SDL_SCANCODE_SLASH]         = 0x35;
+		tbl[SDL_SCANCODE_RSHIFT]        = 0x36;
+		tbl[SDL_SCANCODE_KP_MULTIPLY]   = 0x37;
+		tbl[SDL_SCANCODE_LALT]          = 0x38;
+		tbl[SDL_SCANCODE_SPACE]         = 0x39;
+		tbl[SDL_SCANCODE_CAPSLOCK]      = 0x3A;
+		tbl[SDL_SCANCODE_F1]            = 0x3B;
+		tbl[SDL_SCANCODE_F2]            = 0x3C;
+		tbl[SDL_SCANCODE_F3]            = 0x3D;
+		tbl[SDL_SCANCODE_F4]            = 0x3E;
+		tbl[SDL_SCANCODE_F5]            = 0x3F;
+		tbl[SDL_SCANCODE_F6]            = 0x40;
+		tbl[SDL_SCANCODE_F7]            = 0x41;
+		tbl[SDL_SCANCODE_F8]            = 0x42;
+		tbl[SDL_SCANCODE_F9]            = 0x43;
+		tbl[SDL_SCANCODE_F10]           = 0x44;
+		tbl[SDL_SCANCODE_NUMLOCKCLEAR]  = 0x45;
+		tbl[SDL_SCANCODE_SCROLLLOCK]    = 0x46;
+		tbl[SDL_SCANCODE_KP_7]          = 0x47;
+		tbl[SDL_SCANCODE_KP_8]          = 0x48;
+		tbl[SDL_SCANCODE_KP_9]          = 0x49;
+		tbl[SDL_SCANCODE_KP_MINUS]      = 0x4A;
+		tbl[SDL_SCANCODE_KP_4]          = 0x4B;
+		tbl[SDL_SCANCODE_KP_5]          = 0x4C;
+		tbl[SDL_SCANCODE_KP_6]          = 0x4D;
+		tbl[SDL_SCANCODE_KP_PLUS]       = 0x4E;
+		tbl[SDL_SCANCODE_KP_1]          = 0x4F;
+		tbl[SDL_SCANCODE_KP_2]          = 0x50;
+		tbl[SDL_SCANCODE_KP_3]          = 0x51;
+		tbl[SDL_SCANCODE_KP_0]          = 0x52;
+		tbl[SDL_SCANCODE_KP_PERIOD]     = 0x53;
+		tbl[SDL_SCANCODE_F11]           = 0x57;
+		tbl[SDL_SCANCODE_F12]           = 0x58;
+		tbl[SDL_SCANCODE_F13]           = 0x64;
+		tbl[SDL_SCANCODE_F14]           = 0x65;
+		tbl[SDL_SCANCODE_F15]           = 0x66;
+		// Extended keys: OAPI_KEY = base | 0x80
+		tbl[SDL_SCANCODE_KP_ENTER]      = 0x9C; // 0x1C | 0x80
+		tbl[SDL_SCANCODE_RCTRL]         = 0x9D; // 0x1D | 0x80
+		tbl[SDL_SCANCODE_KP_DIVIDE]     = 0xB5; // 0x35 | 0x80
+		tbl[SDL_SCANCODE_RALT]          = 0xB8; // 0x38 | 0x80
+		tbl[SDL_SCANCODE_HOME]          = 0xC7; // 0x47 | 0x80
+		tbl[SDL_SCANCODE_UP]            = 0xC8; // 0x48 | 0x80
+		tbl[SDL_SCANCODE_PAGEUP]        = 0xC9; // 0x49 | 0x80
+		tbl[SDL_SCANCODE_LEFT]          = 0xCB; // 0x4B | 0x80
+		tbl[SDL_SCANCODE_RIGHT]         = 0xCD; // 0x4D | 0x80
+		tbl[SDL_SCANCODE_END]           = 0xCF; // 0x4F | 0x80
+		tbl[SDL_SCANCODE_DOWN]          = 0xD0; // 0x50 | 0x80
+		tbl[SDL_SCANCODE_PAGEDOWN]      = 0xD1; // 0x51 | 0x80
+		tbl[SDL_SCANCODE_INSERT]        = 0xD2; // 0x52 | 0x80
+		tbl[SDL_SCANCODE_DELETE]        = 0xD3; // 0x53 | 0x80
+		tbl[SDL_SCANCODE_LGUI]          = 0xDB;
+		tbl[SDL_SCANCODE_RGUI]          = 0xDC;
+		tbl[SDL_SCANCODE_APPLICATION]   = 0xDD;
+	}
+	return ((unsigned)sc < 512u) ? tbl[sc] : 0u;
+}
+#endif // ORBITER_USE_SDL3
+
 //-----------------------------------------------------------------------------
 // Name: Run()
 // Desc: Message-processing loop. Idle time is used to render the scene.
@@ -1215,9 +1339,31 @@ INT Orbiter::Run ()
 	while (sdlRunning) {
 		SDL_Event sdlEv;
 		while (SDL_PollEvent(&sdlEv)) {
-			if (sdlEv.type == SDL_EVENT_QUIT)
+			switch (sdlEv.type) {
+			case SDL_EVENT_QUIT:
 				sdlRunning = false;
-			// Keyboard / mouse SDL events are wired in Phase 3.
+				break;
+			case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+				sdlRunning = false;
+				break;
+			case SDL_EVENT_WINDOW_FOCUS_LOST:
+				pDI->ClearKeyboard();
+				bActive = false;
+				break;
+			case SDL_EVENT_WINDOW_FOCUS_GAINED:
+				bActive = true;
+				break;
+			case SDL_EVENT_KEY_DOWN:
+			case SDL_EVENT_KEY_UP:
+				if (!ImGui::GetIO().WantCaptureKeyboard) {
+					DWORD oapi_key = SDLScancodeToOAPIKey(sdlEv.key.scancode);
+					if (oapi_key)
+						pDI->OnKey(oapi_key, sdlEv.type == SDL_EVENT_KEY_DOWN);
+				}
+				break;
+			default:
+				break;
+			}
 		}
 
 #ifdef _WIN32
