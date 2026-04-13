@@ -2,249 +2,252 @@
 // Licensed under the MIT License
 
 // =======================================================================
-// DirectInput user interface class
+// Input.cpp
+// Input manager implementation.
+//
+// Conditionally compiled:
+//   ORBITER_DINPUT=1  — full DirectInput back-end (Windows, no SDL3 override)
+//   ORBITER_DINPUT=0  — no-op stub; SDL3 input to be wired in a later phase
 // =======================================================================
 
 #include "Input.h"
 #include "Log.h"
 #include "Orbiter.h"
 
-DInput::DInput (Orbiter *pOrbiter)
+// ---------------------------------------------------------------------------
+// Common constructor / destructor
+// ---------------------------------------------------------------------------
+
+DInput::DInput(Orbiter *pOrbiter)
 {
-	orbiter = pOrbiter;
-	diframe = NULL;
-	m_hWnd = NULL;
+    orbiter = pOrbiter;
+#if ORBITER_DINPUT
+    diframe = nullptr;
+    m_hWnd  = nullptr;
+#endif
 }
 
-DInput::~DInput ()
+DInput::~DInput()
 {
-	Destroy();
+    Destroy();
 }
 
-HRESULT DInput::Create (HINSTANCE hInst)
+// ---------------------------------------------------------------------------
+// PollJoystick — common entry point regardless of back-end.
+// DInput path: queries the device and translates DIJOYSTATE2 → JoystickState.
+// Stub path:   always returns false (no input).
+// ---------------------------------------------------------------------------
+
+bool DInput::PollJoystick(orbiter::JoystickState *state)
 {
-	if (NULL == (diframe = new CDIFramework7())) {
-		LOGOUT_ERR ("DirectInput: Could not create DI environment");
-		return E_OUTOFMEMORY;
-	}
-	return diframe->Create (hInst);
+#if ORBITER_DINPUT
+    LPDIRECTINPUTDEVICE8 dev = GetJoyDevice();
+    if (!dev) return false;
+
+    DIJOYSTATE2 raw = {};
+    dev->Poll();
+    HRESULT hr = dev->GetDeviceState(sizeof(DIJOYSTATE2), &raw);
+    if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) {
+        if (SUCCEEDED(dev->Acquire())) {
+            dev->Poll();
+            hr = dev->GetDeviceState(sizeof(DIJOYSTATE2), &raw);
+        }
+    }
+    if (hr != S_OK) return false;
+
+    // Translate DIJOYSTATE2 → JoystickState
+    state->lX  = raw.lX;
+    state->lY  = raw.lY;
+    state->lZ  = raw.lZ;
+    state->lRx = raw.lRx;
+    state->lRy = raw.lRy;
+    state->lRz = raw.lRz;
+    state->rglSlider[0] = raw.rglSlider[0];
+    state->rglSlider[1] = raw.rglSlider[1];
+    for (int i = 0; i < 4; ++i)
+        state->rgdwPOV[i] = raw.rgdwPOV[i];
+    for (int i = 0; i < 128; ++i)
+        state->rgbButtons[i] = raw.rgbButtons[i];
+
+    return true;
+#else
+    (void)state;
+    return false;
+#endif
 }
 
-void DInput::Destroy ()
+// ---------------------------------------------------------------------------
+// DirectInput-only implementations
+// ---------------------------------------------------------------------------
+
+#if ORBITER_DINPUT
+
+HRESULT DInput::Create(HINSTANCE hInst)
 {
-	if (diframe) {
-		delete diframe;
-		diframe = NULL;
-	}
+    if (nullptr == (diframe = new CDIFramework7())) {
+        LOGOUT_ERR("DirectInput: Could not create DI environment");
+        return E_OUTOFMEMORY;
+    }
+    return diframe->Create(hInst);
+}
+
+void DInput::Destroy()
+{
+    if (diframe) {
+        delete diframe;
+        diframe = nullptr;
+    }
 }
 
 void DInput::SetRenderWindow(HWND hWnd)
 {
-	if (diframe)
-		diframe->DestroyDevices();
-	m_hWnd = hWnd;
+    if (diframe)
+        diframe->DestroyDevices();
+    m_hWnd = hWnd;
 }
 
 bool DInput::CreateKbdDevice()
 {
-	if (!m_hWnd) return false; // no render window defined
-
-	if (FAILED (diframe->CreateKbdDevice (m_hWnd))) {
-		LOGOUT("ERROR: Could not create keyboard device");
-		return false; // we need the keyboard, so give up
-	}
-	GetKbdDevice()->Acquire();
-	return true;
+    if (!m_hWnd) return false;
+    if (FAILED(diframe->CreateKbdDevice(m_hWnd))) {
+        LOGOUT("ERROR: Could not create keyboard device");
+        return false;
+    }
+    GetKbdDevice()->Acquire();
+    return true;
 }
 
-bool DInput::CreateJoyDevice ()
+bool DInput::CreateJoyDevice()
 {
-	if (!m_hWnd) return false; // no render window defined
+    if (!m_hWnd) return false;
+    Config *pcfg = orbiter->Cfg();
+    if (!pcfg->CfgJoystickPrm.Joy_idx) return false;
 
-	Config *pcfg = orbiter->Cfg();
-	if (!pcfg->CfgJoystickPrm.Joy_idx) return false; // no joystick requested
+    if (FAILED(diframe->CreateJoyDevice(m_hWnd, pcfg->CfgJoystickPrm.Joy_idx - 1))) {
+        LOGOUT_ERR("Could not create joystick device");
+        return false;
+    }
 
-	if (FAILED (diframe->CreateJoyDevice (m_hWnd, pcfg->CfgJoystickPrm.Joy_idx-1))) {
-		LOGOUT_ERR("Could not create joystick device");
-		return false;
-	}
-	
-	HRESULT hr = GetJoyDevice()->Acquire();
-	if (hr == DIERR_OTHERAPPHASPRIO) {
-		Sleep(1000);
-		hr = GetJoyDevice()->Acquire();
-	}
-	switch (hr) {
-	case DIERR_OTHERAPPHASPRIO:
-		hr = DI_OK;
-		break;
-	}
+    HRESULT hr = GetJoyDevice()->Acquire();
+    if (hr == DIERR_OTHERAPPHASPRIO) {
+        Sleep(1000);
+        hr = GetJoyDevice()->Acquire();
+    }
+    // DIERR_OTHERAPPHASPRIO after retry is non-fatal; device will be acquired on first poll
+    if (hr == DIERR_OTHERAPPHASPRIO) hr = DI_OK;
 
-	if (SetJoystickProperties () != DI_OK) {
-		LOGOUT_ERR("Could not set joystick properties");
-		return false;
-	}
-
-
-	return true;
+    if (SetJoystickProperties() != DI_OK) {
+        LOGOUT_ERR("Could not set joystick properties");
+        return false;
+    }
+    return true;
 }
 
-void DInput::DestroyDevices ()
+void DInput::DestroyDevices()
 {
-	diframe->DestroyDevices();
+    diframe->DestroyDevices();
 }
 
 void DInput::OptionChanged(DWORD cat, DWORD item)
 {
-	if (cat == OPTCAT_JOYSTICK) {
-		switch (item) {
-		case OPTITEM_JOYSTICK_DEVICE:
-			diframe->DestroyJoyDevice();
-			CreateJoyDevice();
-			break;
-		case OPTITEM_JOYSTICK_PARAM:
-			SetJoystickProperties();
-			break;
-		}
-	}
+    if (cat == OPTCAT_JOYSTICK) {
+        switch (item) {
+        case OPTITEM_JOYSTICK_DEVICE:
+            diframe->DestroyJoyDevice();
+            CreateJoyDevice();
+            break;
+        case OPTITEM_JOYSTICK_PARAM:
+            SetJoystickProperties();
+            break;
+        }
+    }
 }
 
-bool DInput::PollJoystick (DIJOYSTATE2 *js)
+HRESULT DInput::SetJoystickProperties()
 {
-	// todo: return joystick data in device-independent format
-	//       allow collecting data from more than one joystick
+    using ThrottleAxis = orbiter::JoystickState::ThrottleAxis;
 
-	LPDIRECTINPUTDEVICE8 dev = GetJoyDevice();
-	if (!dev) return false;
-	HRESULT hr = dev->Poll();
-	//if (hr == DI_OK || hr == DI_NOEFFECT)     // ignore error flag from poll. appears to occasionally return DIERR_UNPLUGGED
-		hr = dev->GetDeviceState (sizeof(DIJOYSTATE2), js);
-		if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) {
-			if (SUCCEEDED(dev->Acquire())) {
-				dev->Poll();
-				hr = dev->GetDeviceState(sizeof(DIJOYSTATE2), js);
-			}
-		}
-	return (hr == S_OK);
+    LPDIRECTINPUTDEVICE8 dev = GetJoyDevice();
+    if (!dev) return DI_OK;
+
+    HRESULT hr;
+    DIPROPRANGE diprg;
+    DIPROPDWORD diprw;
+    joyprop.bRudder   = false;
+    joyprop.bThrottle = false;
+    joyprop.ThrottleAxis = ThrottleAxis::None;
+    Config *pcfg = orbiter->Cfg();
+
+    // x-axis range and deadzone
+    diprg.diph = { sizeof(diprg), sizeof(diprg.diph), DIJOFS_X, DIPH_BYOFFSET };
+    diprg.lMin = -1000; diprg.lMax = +1000;
+    if ((hr = dev->SetProperty(DIPROP_RANGE, &diprg.diph)) != DI_OK) return hr;
+
+    diprw.diph = { sizeof(diprw), sizeof(diprw.diph), DIJOFS_X, DIPH_BYOFFSET };
+    diprw.dwData = pcfg->CfgJoystickPrm.Deadzone;
+    if ((hr = dev->SetProperty(DIPROP_DEADZONE, &diprw.diph)) != DI_OK) return hr;
+
+    // y-axis range and deadzone
+    diprg.diph = { sizeof(diprg), sizeof(diprg.diph), DIJOFS_Y, DIPH_BYOFFSET };
+    diprg.lMin = -1000; diprg.lMax = +1000;
+    if ((hr = dev->SetProperty(DIPROP_RANGE, &diprg.diph)) != DI_OK) return hr;
+
+    diprw.diph = { sizeof(diprw), sizeof(diprw.diph), DIJOFS_Y, DIPH_BYOFFSET };
+    diprw.dwData = pcfg->CfgJoystickPrm.Deadzone;
+    if ((hr = dev->SetProperty(DIPROP_DEADZONE, &diprw.diph)) != DI_OK) return hr;
+
+    // Rz axis (rudder)
+    joyprop.bRudder   = true;
+    joyprop.bThrottle = true;
+
+    diprg.diph = { sizeof(diprg), sizeof(diprg.diph), DIJOFS_RZ, DIPH_BYOFFSET };
+    diprg.lMin = -1000; diprg.lMax = +1000;
+    if (dev->SetProperty(DIPROP_RANGE, &diprg.diph) != DI_OK) joyprop.bRudder = false;
+
+    diprw.diph = { sizeof(diprw), sizeof(diprw.diph), DIJOFS_RZ, DIPH_BYOFFSET };
+    diprw.dwData = pcfg->CfgJoystickPrm.Deadzone;
+    if (dev->SetProperty(DIPROP_DEADZONE, &diprw.diph) != DI_OK) joyprop.bRudder = false;
+
+    // Throttle axis selection
+    DWORD thaxis;
+    switch (pcfg->CfgJoystickPrm.ThrottleAxis) {
+    case 1:
+        LOGOUT("Joystick throttle: Z-AXIS");
+        thaxis = DIJOFS_Z;
+        joyprop.ThrottleAxis = ThrottleAxis::Z;
+        break;
+    case 2:
+        LOGOUT("Joystick throttle: SLIDER 0");
+        thaxis = DIJOFS_SLIDER(0);
+        joyprop.ThrottleAxis = ThrottleAxis::Slider0;
+        break;
+    case 3:
+        LOGOUT("Joystick throttle: SLIDER 1");
+        thaxis = DIJOFS_SLIDER(1);
+        joyprop.ThrottleAxis = ThrottleAxis::Slider1;
+        break;
+    default:
+        joyprop.bThrottle = false;
+        LOGOUT("Joystick throttle disabled by user");
+        return DI_OK;
+    }
+
+    diprg.diph = { sizeof(diprg), sizeof(diprg.diph), thaxis, DIPH_BYOFFSET };
+    diprg.lMin = -1000; diprg.lMax = 0;
+    if ((hr = dev->SetProperty(DIPROP_RANGE, &diprg.diph)) != DI_OK) {
+        joyprop.bThrottle = false;
+        LOGOUT("No joystick throttle control detected");
+        LOGOUT_DIERR(hr);
+        return DI_OK;
+    }
+    LOGOUT("Joystick throttle control detected");
+
+    diprw.diph = { sizeof(diprw), sizeof(diprw.diph), thaxis, DIPH_BYOFFSET };
+    diprw.dwData = pcfg->CfgJoystickPrm.ThrottleSaturation;
+    if (dev->SetProperty(DIPROP_SATURATION, &diprw.diph) != DI_OK)
+        LOGOUT_ERR("Setting joystick throttle saturation failed");
+
+    return DI_OK;
 }
 
-HRESULT DInput::SetJoystickProperties ()
-{
-	LPDIRECTINPUTDEVICE8 dev = GetJoyDevice();
-	if (!dev) return DI_OK;
-
-	HRESULT hr;
-	DIPROPRANGE diprg;
-	DIPROPDWORD diprw;
-	joyprop.bRudder = false;
-	joyprop.bThrottle = false;
-	Config *pcfg = orbiter->Cfg();
-
-	// x-axis range
-	diprg.diph.dwSize       = sizeof (diprg);
-	diprg.diph.dwHeaderSize = sizeof (diprg.diph);
-	diprg.diph.dwObj        = DIJOFS_X;
-	diprg.diph.dwHow        = DIPH_BYOFFSET;
-	diprg.lMin              = -1000;
-	diprg.lMax              = +1000;
-	if ((hr = dev->SetProperty (DIPROP_RANGE, &diprg.diph)) != DI_OK)
-		return hr;
-
-	// x-axis deadzone
-	diprw.diph.dwSize       = sizeof (diprw);
-	diprw.diph.dwHeaderSize = sizeof (diprw.diph);
-	diprw.diph.dwObj        = DIJOFS_X;
-	diprw.diph.dwHow        = DIPH_BYOFFSET;
-	diprw.dwData            = pcfg->CfgJoystickPrm.Deadzone;
-	if ((hr = dev->SetProperty (DIPROP_DEADZONE, &diprw.diph)) != DI_OK)
-		return hr;
-
-	// y-axis range
-	diprg.diph.dwSize       = sizeof (diprg);
-	diprg.diph.dwHeaderSize = sizeof (diprg.diph);
-	diprg.diph.dwObj        = DIJOFS_Y;
-	diprg.diph.dwHow        = DIPH_BYOFFSET;
-	diprg.lMin              = -1000;
-	diprg.lMax              = +1000;
-	if ((hr = dev->SetProperty (DIPROP_RANGE, &diprg.diph)) != DI_OK)
-		return hr;
-
-	// y-axis deadzone
-	diprw.diph.dwSize       = sizeof (diprw);
-	diprw.diph.dwHeaderSize = sizeof (diprw.diph);
-	diprw.diph.dwObj        = DIJOFS_Y;
-	diprw.diph.dwHow        = DIPH_BYOFFSET;
-	diprw.dwData            = pcfg->CfgJoystickPrm.Deadzone;
-	if ((hr = dev->SetProperty (DIPROP_DEADZONE, &diprw.diph)) != DI_OK)
-		return hr;
-
-	joyprop.bRudder = true;
-	joyprop.bThrottle = true;
-
-	diprg.diph.dwSize       = sizeof (diprg);
-	diprg.diph.dwHeaderSize = sizeof (diprg.diph);
-	diprg.diph.dwObj        = DIJOFS_RZ;
-	diprg.diph.dwHow        = DIPH_BYOFFSET;
-	diprg.lMin              = -1000;
-	diprg.lMax              = +1000;
-	if (dev->SetProperty (DIPROP_RANGE, &diprg.diph) != DI_OK)
-		joyprop.bRudder = false;
-
-	diprw.diph.dwSize       = sizeof (diprw);
-	diprw.diph.dwHeaderSize = sizeof (diprw.diph);
-	diprw.diph.dwObj        = DIJOFS_RZ;
-	diprw.diph.dwHow        = DIPH_BYOFFSET;
-	diprw.dwData            = pcfg->CfgJoystickPrm.Deadzone;
-	if (dev->SetProperty (DIPROP_DEADZONE, &diprw.diph) != DI_OK)
-		joyprop.bRudder = false;
-
-	// z-axis range (throttle)
-	DWORD thaxis;
-	DIJOYSTATE2 js2;
-	switch (pcfg->CfgJoystickPrm.ThrottleAxis) {
-	case 1:
-		LOGOUT ("Joystick throttle: Z-AXIS");
-		thaxis = DIJOFS_Z;
-		joyprop.ThrottleOfs = (BYTE*)&js2.lZ - (BYTE*)&js2;
-		break;
-	case 2:
-		LOGOUT ("Joystick throttle: SLIDER 0");
-		thaxis = DIJOFS_SLIDER(0);
-		joyprop.ThrottleOfs = (BYTE*)&js2.rglSlider[0] - (BYTE*)&js2;
-		break;
-	case 3:
-		LOGOUT ("Joystick throttle: SLIDER 1");
-		thaxis = DIJOFS_SLIDER(1);
-		joyprop.ThrottleOfs = (BYTE*)&js2.rglSlider[1] - (BYTE*)&js2;
-		break;
-	default:
-		joyprop.bThrottle = false;
-		LOGOUT ("Joystick throttle disabled by user");
-		return DI_OK;
-	}
-
-	diprg.diph.dwSize       = sizeof (diprg);
-	diprg.diph.dwHeaderSize = sizeof (diprg.diph);
-	diprg.diph.dwObj        = thaxis;
-	diprg.diph.dwHow        = DIPH_BYOFFSET;
-	diprg.lMin              = -1000;
-	diprg.lMax              = 0;
-	if ((hr = dev->SetProperty (DIPROP_RANGE, &diprg.diph)) != DI_OK) {
-		joyprop.bThrottle = false;
-		LOGOUT("No joystick throttle control detected");
-		LOGOUT_DIERR(hr);
-		return DI_OK;
-	}
-	LOGOUT("Joystick throttle control detected");
-
-	// throttle saturation at extreme ends
-	diprw.diph.dwSize       = sizeof (diprw);
-	diprw.diph.dwHeaderSize = sizeof (diprw.diph);
-	diprw.diph.dwObj        = thaxis;
-	diprw.diph.dwHow        = DIPH_BYOFFSET;
-	diprw.dwData            = pcfg->CfgJoystickPrm.ThrottleSaturation;
-	if (dev->SetProperty (DIPROP_SATURATION, &diprw.diph) != DI_OK) {
-		LOGOUT_ERR("Setting joystick throttle saturation failed");
-	}
-	return DI_OK;
-}
+#endif // ORBITER_DINPUT
