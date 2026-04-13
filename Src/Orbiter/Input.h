@@ -25,6 +25,9 @@
 #   ifdef _WIN32
 #       include <windows.h>  // HRESULT, HWND for method signatures
 #   endif
+#   ifdef ORBITER_USE_SDL3
+#       include <SDL3/SDL.h>
+#   endif
 #endif
 
 // ---------------------------------------------------------------------------
@@ -91,12 +94,12 @@ public:
 #else
     // SDL3 / non-Windows implementations in Input.cpp.
     HRESULT Create(void* /*hInst*/) { return 0 /*S_OK*/; }
-    void    Destroy()               {}
+    void    Destroy();
     void    SetRenderWindow(void*)  {}
     bool    CreateKbdDevice();   // returns true; state collected via OnKey()
-    bool    CreateJoyDevice()    { return false; }
-    void    DestroyDevices()     {}
-    void    OptionChanged(unsigned long /*cat*/, unsigned long /*item*/) {}
+    bool    CreateJoyDevice();   // opens the configured SDL joystick (SDL3 path)
+    void    DestroyDevices();    // closes the SDL joystick
+    void    OptionChanged(unsigned long cat, unsigned long item);
 
     // Called by Orbiter::MsgProc for WM_KEYDOWN / WM_KEYUP.
     // oapi_key — OAPI_KEY_* constant; pressed — true=down, false=up.
@@ -140,6 +143,11 @@ private:
     char          m_kbdState[256]           = {};
     DIDEVICEOBJECTDATA m_kbdEvents[KBD_EVENT_BUF] = {};
     unsigned long m_kbdEventCount           = 0;
+
+#ifdef ORBITER_USE_SDL3
+    // SDL3 joystick handle (null when no joystick is configured/opened).
+    SDL_Joystick *m_sdlJoystick = nullptr;
+#endif
 #endif
 };
 

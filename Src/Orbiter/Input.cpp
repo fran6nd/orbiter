@@ -7,13 +7,22 @@
 //
 // Conditionally compiled:
 //   ORBITER_DINPUT=1  — full DirectInput back-end (Windows, no SDL3 override)
-//   ORBITER_DINPUT=0  — keyboard state collected from WM_KEYDOWN/WM_KEYUP
-//                       via OnKey(); joystick not yet wired.
+//   ORBITER_DINPUT=0  — keyboard via OnKey(); joystick via SDL3 (SDL3 path)
+//                       or permanently stubbed (non-SDL3 non-Windows path)
 // =======================================================================
 
 #include "Input.h"
 #include "Log.h"
 #include "Orbiter.h"
+
+// ---------------------------------------------------------------------------
+// SDL3 axis / hat helpers — forward-declared here so PollJoystick can use
+// them before the SDL3-guarded block further below.
+// ---------------------------------------------------------------------------
+#ifdef ORBITER_USE_SDL3
+static long         SDLAxisToOrbiter(Sint16 raw, int deadzone_units);
+static unsigned long SDLHatToAngle(Uint8 hat);
+#endif
 
 // ---------------------------------------------------------------------------
 // Common constructor / destructor
@@ -71,6 +80,46 @@ bool DInput::PollJoystick(orbiter::JoystickState *state)
         state->rgbButtons[i] = raw.rgbButtons[i];
 
     return true;
+#elif defined(ORBITER_USE_SDL3)
+    if (!m_sdlJoystick) return false;
+
+    SDL_UpdateJoysticks();
+    Config *pcfg = orbiter->Cfg();
+    int dz = pcfg->CfgJoystickPrm.Deadzone;
+
+    int numAxes    = SDL_GetNumJoystickAxes(m_sdlJoystick);
+    int numButtons = SDL_GetNumJoystickButtons(m_sdlJoystick);
+    int numHats    = SDL_GetNumJoystickHats(m_sdlJoystick);
+
+    // Axis mapping: index 0=X, 1=Y, 2=Z, 3=Rx, 4=Ry, 5=Rz, 6=Slider0, 7=Slider1
+    auto axis = [&](int i) -> long {
+        if (i >= numAxes) return 0;
+        return SDLAxisToOrbiter(SDL_GetJoystickAxis(m_sdlJoystick, i), dz);
+    };
+
+    state->lX          = axis(0);
+    state->lY          = axis(1);
+    state->lZ          = axis(2);
+    state->lRx         = axis(3);
+    state->lRy         = axis(4);
+    state->lRz         = axis(5);
+    state->rglSlider[0]= axis(6);
+    state->rglSlider[1]= axis(7);
+
+    // POV hats
+    for (int i = 0; i < 4; ++i)
+        state->rgdwPOV[i] = (i < numHats)
+            ? SDLHatToAngle(SDL_GetJoystickHat(m_sdlJoystick, i))
+            : 0xFFFFFFFFu;
+
+    // Buttons (up to 128)
+    int nb = (numButtons < 128) ? numButtons : 128;
+    for (int i = 0; i < nb; ++i)
+        state->rgbButtons[i] = SDL_GetJoystickButton(m_sdlJoystick, i) ? 0x80u : 0x00u;
+    for (int i = nb; i < 128; ++i)
+        state->rgbButtons[i] = 0;
+
+    return true;
 #else
     (void)state;
     return false;
@@ -78,10 +127,15 @@ bool DInput::PollJoystick(orbiter::JoystickState *state)
 }
 
 // ---------------------------------------------------------------------------
-// SDL3 / non-DInput keyboard implementation
+// SDL3 / non-DInput keyboard + joystick implementation
 // ---------------------------------------------------------------------------
 
 #if !ORBITER_DINPUT
+
+void DInput::Destroy()
+{
+    DestroyDevices();
+}
 
 bool DInput::CreateKbdDevice()
 {
@@ -89,9 +143,139 @@ bool DInput::CreateKbdDevice()
     return true;
 }
 
+#ifdef ORBITER_USE_SDL3
+
+// Helper: clamp a raw Sint16 axis value to [-1000, +1000] with deadzone.
+static long SDLAxisToOrbiter(Sint16 raw, int deadzone_units)
+{
+    // raw ∈ [-32768, 32767]; map to [-1000, +1000]
+    long v = (long)raw * 1000L / 32767L;
+    // Apply deadzone in same units as result range.
+    int dz = deadzone_units / 10; // CfgJoystickPrm.Deadzone is 0-10000; scale to 0-1000
+    if (v > -dz && v < dz) v = 0;
+    return v;
+}
+
+// Helper: map SDL hat mask to DInput-style angle in hundredths of a degree.
+static unsigned long SDLHatToAngle(Uint8 hat)
+{
+    // SDL_HAT_* bits: UP=0x01 RIGHT=0x02 DOWN=0x04 LEFT=0x08
+    switch (hat) {
+    case SDL_HAT_UP:        return 0;
+    case SDL_HAT_RIGHTUP:   return 4500;
+    case SDL_HAT_RIGHT:     return 9000;
+    case SDL_HAT_RIGHTDOWN: return 13500;
+    case SDL_HAT_DOWN:      return 18000;
+    case SDL_HAT_LEFTDOWN:  return 22500;
+    case SDL_HAT_LEFT:      return 27000;
+    case SDL_HAT_LEFTUP:    return 31500;
+    default:                return 0xFFFFFFFFu; // centred
+    }
+}
+
+bool DInput::CreateJoyDevice()
+{
+    using ThrottleAxis = orbiter::JoystickState::ThrottleAxis;
+    Config *pcfg = orbiter->Cfg();
+    if (!pcfg->CfgJoystickPrm.Joy_idx) return false; // 0 = disabled
+
+    int count = 0;
+    SDL_JoystickID *ids = SDL_GetJoysticks(&count);
+    int requested = (int)pcfg->CfgJoystickPrm.Joy_idx - 1; // convert to 0-based
+    if (!ids || requested >= count) {
+        SDL_free(ids);
+        LOGOUT_ERR("SDL3: requested joystick index not available");
+        return false;
+    }
+
+    m_sdlJoystick = SDL_OpenJoystick(ids[requested]);
+    SDL_free(ids);
+    if (!m_sdlJoystick) {
+        LOGOUT_ERR("SDL3: could not open joystick");
+        return false;
+    }
+
+    int numAxes = SDL_GetNumJoystickAxes(m_sdlJoystick);
+
+    // Detect rudder: needs at least 6 axes (X, Y, Z, Rx, Ry, Rz).
+    joyprop.bRudder = (numAxes >= 6);
+
+    // Throttle axis selection from config.
+    joyprop.bThrottle    = false;
+    joyprop.ThrottleAxis = ThrottleAxis::None;
+    joyprop.ThrottleOfs  = 0;
+
+    switch (pcfg->CfgJoystickPrm.ThrottleAxis) {
+    case 1: // Z-axis (axis index 2)
+        if (numAxes >= 3) {
+            joyprop.bThrottle    = true;
+            joyprop.ThrottleAxis = ThrottleAxis::Z;
+        }
+        break;
+    case 2: // Slider 0 (axis index 6)
+        if (numAxes >= 7) {
+            joyprop.bThrottle    = true;
+            joyprop.ThrottleAxis = ThrottleAxis::Slider0;
+        }
+        break;
+    case 3: // Slider 1 (axis index 7)
+        if (numAxes >= 8) {
+            joyprop.bThrottle    = true;
+            joyprop.ThrottleAxis = ThrottleAxis::Slider1;
+        }
+        break;
+    default:
+        break;
+    }
+
+    LOGOUT("SDL3 joystick opened");
+    return true;
+}
+
+void DInput::DestroyDevices()
+{
+    if (m_sdlJoystick) {
+        SDL_CloseJoystick(m_sdlJoystick);
+        m_sdlJoystick = nullptr;
+    }
+}
+
+void DInput::OptionChanged(unsigned long cat, unsigned long item)
+{
+    if (cat == OPTCAT_JOYSTICK) {
+        switch (item) {
+        case OPTITEM_JOYSTICK_DEVICE:
+            DestroyDevices();
+            CreateJoyDevice();
+            break;
+        case OPTITEM_JOYSTICK_PARAM:
+            // Re-evaluate joyprop without reopening the device.
+            if (m_sdlJoystick) {
+                DestroyDevices();
+                CreateJoyDevice();
+            }
+            break;
+        }
+    }
+}
+
+#else // !ORBITER_USE_SDL3 but still !ORBITER_DINPUT (future non-SDL3 non-Windows)
+
+bool DInput::CreateJoyDevice()  { return false; }
+void DInput::DestroyDevices()   {}
+void DInput::OptionChanged(unsigned long /*cat*/, unsigned long /*item*/) {}
+
+#endif // ORBITER_USE_SDL3
+
 void DInput::OnKey(unsigned long oapi_key, bool pressed)
 {
     if (oapi_key == 0 || oapi_key >= 256) return;
+
+#ifdef ORBITER_USE_SDL3
+    unsigned long now = (unsigned long)SDL_GetTicks();
+#else
+    unsigned long now = (unsigned long)GetTickCount();
+#endif
 
     if (pressed) {
         bool was_up = !(m_kbdState[oapi_key] & 0x80);
@@ -101,7 +285,7 @@ void DInput::OnKey(unsigned long oapi_key, bool pressed)
             DIDEVICEOBJECTDATA &ev = m_kbdEvents[m_kbdEventCount++];
             ev.dwOfs       = oapi_key;
             ev.dwData      = 0x80;
-            ev.dwTimeStamp = GetTickCount();
+            ev.dwTimeStamp = now;
             ev.uAppData    = 0;
         }
     } else {
@@ -110,7 +294,7 @@ void DInput::OnKey(unsigned long oapi_key, bool pressed)
             DIDEVICEOBJECTDATA &ev = m_kbdEvents[m_kbdEventCount++];
             ev.dwOfs       = oapi_key;
             ev.dwData      = 0x00;
-            ev.dwTimeStamp = GetTickCount();
+            ev.dwTimeStamp = now;
             ev.uAppData    = 0;
         }
     }
