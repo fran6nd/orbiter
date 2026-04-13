@@ -13,8 +13,16 @@
 #ifndef __D3DUTIL_H
 #define __D3DUTIL_H
 
-#include <d3d.h>
+#ifdef _WIN32
+#   include <d3d.h>
+#else
+#   include "../Platform/D3DTypes.h"
+#endif
+
 #include "OrbiterAPI.h"
+
+#ifdef _WIN32
+// On non-Windows these structs are provided by Platform/D3DTypes.h.
 
 struct VECTOR2D     { D3DVALUE x, y; };
 
@@ -32,7 +40,6 @@ struct VERTEX_2TEX  {
 	{ x = p.x, y = p.y, z = p.z, nx = n.x, ny = n.y, nz = n.z;
   	  tu0 = u0, tv0 = v0, tu1 = u1, tv1 = v1; }
 };
-#define FVF_2TEX ( D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX2 | D3DFVF_TEXCOORDSIZE2(0) | D3DFVF_TEXCOORDSIZE2(1) )
 
 // transformed lit vertex with 1 colour definition and one set of texture coordinates
 struct VERTEX_TL1TEX {
@@ -40,7 +47,6 @@ struct VERTEX_TL1TEX {
 	D3DCOLOR col;
 	D3DVALUE tu, tv;
 };
-#define FVF_TL1TEX ( D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1 | D3DFVF_TEXCOORDSIZE2(0) )
 
 // transformed lit vertex with two sets of texture coordinates
 struct VERTEX_TL2TEX {
@@ -48,7 +54,17 @@ struct VERTEX_TL2TEX {
 	D3DCOLOR diff, spec;
 	D3DVALUE tu0, tv0, tu1, tv1;
 };
-#define FVF_TL2TEX ( D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_SPECULAR | D3DFVF_TEX2 | D3DFVF_TEXCOORDSIZE2(0) | D3DFVF_TEXCOORDSIZE2(1) )
+#endif // _WIN32
+
+#ifdef _WIN32
+#   define FVF_2TEX   ( D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX2 | D3DFVF_TEXCOORDSIZE2(0) | D3DFVF_TEXCOORDSIZE2(1) )
+#   define FVF_TL1TEX ( D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1 | D3DFVF_TEXCOORDSIZE2(0) )
+#   define FVF_TL2TEX ( D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_SPECULAR | D3DFVF_TEX2 | D3DFVF_TEXCOORDSIZE2(0) | D3DFVF_TEXCOORDSIZE2(1) )
+#else
+#   define FVF_2TEX   0
+#   define FVF_TL1TEX 0
+#   define FVF_TL2TEX 0
+#endif
 
 VERTEX_XYZ  *GetVertexXYZ  (DWORD n);
 VERTEX_XYZC *GetVertexXYZC (DWORD n);

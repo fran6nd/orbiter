@@ -107,6 +107,14 @@ struct POSTEXVERTEX {
     D3DVALUE tu, tv;
 };
 
+// D3DVERTEX — position + normal + single texture coordinate set.
+// Layout matches the DirectX 7 D3DVERTEX structure exactly.
+struct D3DVERTEX {
+    D3DVALUE x, y, z;
+    D3DVALUE nx, ny, nz;
+    D3DVALUE tu, tv;
+};
+
 // Placeholder FVF constant; only the struct layout matters on non-Windows.
 #define POSTEXVERTEXFLAG 0
 

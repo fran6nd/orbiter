@@ -1,8 +1,10 @@
 project(sdl3-extern)
 
-# SDL3 is not used on Windows in the current build.
-# It is fetched here so it is available when cross-platform targets are enabled.
-if(NOT WIN32)
+# SDL3 is fetched when ORBITER_USE_SDL3 is enabled.
+# On Windows the default is OFF; the D3D9/Win32 path is used instead.
+# Enable this option when targeting a platform without DirectX or when
+# building the future cross-platform Vulkan client.
+if(ORBITER_USE_SDL3)
     Include(FetchContent)
 
     FetchContent_Declare(

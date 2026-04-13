@@ -7,6 +7,10 @@
 // ====================================================================================
 
 #include "Di7frame.h"
+
+// Di7frame.cpp only compiles on Windows — CDIFramework7 is guarded in the header.
+#ifdef _WIN32
+
 #include "D3d7util.h"
 #include "Log.h"
 
@@ -219,3 +223,4 @@ void CDIFramework7::DestroyDevices()
 	DestroyJoyDevice();
 }
 
+#endif // _WIN32
