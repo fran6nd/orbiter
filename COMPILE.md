@@ -65,6 +65,26 @@ Or, run CMake externally:
   Load this into Visual Studio, and Build All.
   
   
+CMAKE BUILD OPTIONS
+===================
+The following CMake options can be set at configure time (e.g. `-DOPTION=ON`):
+
+| Option | Default | Description |
+|---|---|---|
+| `ORBITER_BUILD_D3D9CLIENT` | `ON` | Build the Direct3D 9 graphics client (requires DirectX SDK June 2010) |
+| `ORBITER_BUILD_XRSOUND` | `ON` | Build the XRSound audio module |
+| `ORBITER_USE_SDL3` | `OFF` | Fetch and use SDL3 for windowing and input. Required when targeting non-Windows platforms or building the future cross-platform Vulkan client. On Windows the default Win32/DirectInput path is used. |
+| `ORBITER_MAKE_DOC` | `OFF` | Build PDF documentation (requires LaTeX) |
+| `ORBITER_MAKE_TESTS` | `ON` | Build unit tests |
+| `ORBITER_SANITIZER` | `OFF` | Enable Address Sanitizer |
+| `ORBITER_TRACY_PROFILER` | `OFF` | Enable Tracy profiler instrumentation |
+
+Example — build without the D3D9 client and with SDL3:
+```
+cmake --preset windows-x64-release -DORBITER_BUILD_D3D9CLIENT=OFF -DORBITER_USE_SDL3=ON
+```
+
+
 PLANETARY TEXTURES
 ==================
 The Orbiter Git repository does not include the planetary texture files for most
