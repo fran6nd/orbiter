@@ -4,15 +4,16 @@
 #define STRICT 1
 #define OAPI_IMPLEMENTATION
 
+#ifdef _WIN32
 // Enable visual styles. Source: https://msdn.microsoft.com/en-us/library/windows/desktop/bb773175(v=vs.85).aspx
 #pragma comment(linker,"\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
-
 #include <windows.h>
 #include <direct.h>
+#include <process.h>
+#endif // _WIN32
 #include <stdio.h>
 #include <time.h>
 #include <fstream>
-#include <process.h> 
 #include "cmdline.h"
 #include "D3d7util.h"
 #include "D3dmath.h"
@@ -44,7 +45,13 @@
 #include "GraphicsAPI.h"
 #include "ConsoleManager.h"
 #include "imgui.h"
+#ifdef _WIN32
 #include "imgui_impl_win32.h"
+#endif
+#ifdef ORBITER_USE_SDL3
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
+#endif
 #include <filesystem>
 #include "../Platform/Timer.h"
 
@@ -55,7 +62,9 @@ namespace fs = std::filesystem;
 using namespace std;
 using namespace oapi;
 
+#ifdef _WIN32
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
 
 #define OUTPUT_DBG
 #define LOADSTATUSCOL 0xC08080 //0xFFD0D0
@@ -143,17 +152,22 @@ HELPCONTEXT DefHelpContext = {
 HRESULT ConfirmDevice (DDCAPS*, D3DDEVICEDESC7*);
 
 //LRESULT CALLBACK WndProc3D (HWND, UINT, WPARAM, LPARAM);
+#ifdef _WIN32
 INT_PTR CALLBACK BkMsgProc (HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+#endif
 
 VOID    DestroyWorld ();
 void    SetEnvironmentVars ();
+#ifdef _WIN32
 HANDLE hMutex = 0;
 HANDLE hConsoleMutex = 0;
+#endif
 
 // =======================================================================
 // _matherr()
 // trap global math exceptions
 
+#ifdef _WIN32
 int _matherr(struct _exception *except )
 {
 	if (!strcmp (except->name, "acos")) {
@@ -162,12 +176,83 @@ int _matherr(struct _exception *except )
 	}
 	return 0;
 }
+#endif // _WIN32
 
 
 // =======================================================================
-// WinMain()
-// Application entry containing message loop
+// Application entry point
+//
+// SDL3 path  — standard main(); SDL_main.h maps it to SDL_main on Windows
+//              so SDL3.lib supplies WinMain and the CRT startup calls ours.
+// Win32 path — WinMain with DInput / classic Win32 UI.
 
+#ifdef ORBITER_USE_SDL3
+
+int main (int argc, char *argv[])
+{
+	if (!SDL_Init(SDL_INIT_EVENTS)) {
+		fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+		return 1;
+	}
+
+	// Adjust working directory: step back up if launched from Modules/Server.
+	{
+		std::error_code ec;
+		auto p = fs::current_path(ec);
+		if (!ec) {
+			std::string s = p.string();
+			// Path ends with either /Modules/Server or \Modules\Server
+			const char *tail1 = "/Modules/Server";
+			const char *tail2 = "\\Modules\\Server";
+			std::size_t n = 15; // strlen of either tail
+			if (s.size() >= n &&
+			    (s.compare(s.size() - n, n, tail1) == 0 ||
+			     s.compare(s.size() - n, n, tail2) == 0))
+				fs::current_path(p.parent_path().parent_path(), ec);
+		}
+	}
+
+	if (ConsoleManager::IsConsoleExclusive())
+		ConsoleManager::ShowConsole(false);
+
+	SetEnvironmentVars();
+	g_pOrbiter = new Orbiter;
+
+	// Build a single command string from argv for the existing parser.
+	std::string cmdstr;
+	for (int i = 1; i < argc; ++i) {
+		if (i > 1) cmdstr += ' ';
+		cmdstr += argv[i];
+	}
+	orbiter::CommandLine::Parse(g_pOrbiter, const_cast<char*>(cmdstr.c_str()));
+
+	INITLOG("Orbiter.log", g_pOrbiter->Cfg()->CfgCmdlinePrm.bAppendLog);
+#ifdef ISBETA
+	LOGOUT("Build %s BETA [v.%06d]", __DATE__, GetVersion());
+#else
+	LOGOUT("Build %s [v.%06d]", __DATE__, GetVersion());
+#endif
+
+	srand(12345);
+	LOGOUT("Timer precision: %g sec", fine_counter_step);
+
+	HRESULT hr;
+	if (FAILED(hr = g_pOrbiter->Create(nullptr))) {
+		LOGOUT("Application creation failed");
+		fprintf(stderr, "Application creation failed\n");
+		delete g_pOrbiter;
+		SDL_Quit();
+		return 1;
+	}
+
+	setlocale(LC_CTYPE, "");
+	g_pOrbiter->Run();
+	delete g_pOrbiter;
+	SDL_Quit();
+	return 0;
+}
+
+#else // !ORBITER_USE_SDL3
 
 INT WINAPI WinMain (HINSTANCE hInstance, HINSTANCE, LPSTR strCmdLine, INT nCmdShow)
 {
@@ -186,7 +271,7 @@ INT WINAPI WinMain (HINSTANCE hInstance, HINSTANCE, LPSTR strCmdLine, INT nCmdSh
     // If we're not running from actual console, hide the window
     if (ConsoleManager::IsConsoleExclusive())
         ConsoleManager::ShowConsole(false);
-    
+
     SetEnvironmentVars();
 	g_pOrbiter = new Orbiter; // application instance
 
@@ -223,6 +308,8 @@ INT WINAPI WinMain (HINSTANCE hInstance, HINSTANCE, LPSTR strCmdLine, INT nCmdSh
 	delete g_pOrbiter;
 	return 0;
 }
+
+#endif // ORBITER_USE_SDL3
 
 void SetEnvironmentVars ()
 {
@@ -400,60 +487,84 @@ Orbiter::~Orbiter ()
 //-----------------------------------------------------------------------------
 HRESULT Orbiter::Create (HINSTANCE hInstance)
 {
+#ifndef ORBITER_USE_SDL3
 	if (m_pLaunchpad) return S_OK; // already created
-
-	HRESULT hr;
-	WNDCLASS wndClass;
-
-	// Enable tab controls
-	InitCommonControls();
-	LoadLibrary ("riched20.dll");
-
-	// parameter manager - parses from master config file
-	hInst = hInstance;
-	pConfig->Load(MasterConfigFile);
-	strcpy (cfgpath, pConfig->CfgDirPrm.ConfigDir);   cfglen = strlen (cfgpath);
-
-	if (FAILED (hr = pDI->Create (hInstance))) return hr;
-
-	// validate configuration
-#if ORBITER_DINPUT
-	if (pConfig->CfgJoystickPrm.Joy_idx > GetDInput()->NumJoysticks()) pConfig->CfgJoystickPrm.Joy_idx = 0;
 #endif
 
-	// Read key mapping from file (or write default keymap)
-	if (!keymap.Read ("keymap.cfg")) keymap.Write ("keymap.cfg");
+	HRESULT hr;
 
-    pState = new State(); TRACENEW
+	hInst = hInstance;
 
-	// Register main dialog window class
-	GetClassInfo (hInstance, "#32770", &wndClass); // override default dialog class
-	wndClass.hIcon = LoadIcon (hInstance, MAKEINTRESOURCE (IDI_MAIN_ICON));
-	RegisterClass (&wndClass);
+#ifndef ORBITER_USE_SDL3
+	{
+		WNDCLASS wndClass;
 
-	// Find out if we are running under Linux/WINE
-	HKEY key;
-	long ret = RegOpenKeyEx (HKEY_CURRENT_USER, TEXT("Software\\Wine"), 0, KEY_QUERY_VALUE, &key);
-	RegCloseKey (key);
-	bWINEenv = (ret == ERROR_SUCCESS);
+		// Enable tab controls
+		InitCommonControls();
+		LoadLibrary ("riched20.dll");
 
-	// Register HTML viewer class
-	RegisterHtmlCtrl (hInstance, UseHtmlInline());
-	CustomCtrl::RegisterClass (hInstance);
+		// parameter manager - parses from master config file
+		pConfig->Load(MasterConfigFile);
+		strcpy (cfgpath, pConfig->CfgDirPrm.ConfigDir);   cfglen = strlen (cfgpath);
 
-	if (pConfig->CfgCmdlinePrm.bFastExit)
-		SetFastExit(true);
-	if (pConfig->CfgCmdlinePrm.bOpenVideoTab)
-		OpenVideoTab();
+		if (FAILED (hr = pDI->Create (hInstance))) return hr;
 
-	if (pConfig->CfgDemoPrm.bBkImage) {
-		hBk = CreateDialog (hInstance, MAKEINTRESOURCE(IDD_DEMOBK), NULL, BkMsgProc);
-		ShowWindow (hBk, SW_MAXIMIZE);
+		// validate configuration
+#if ORBITER_DINPUT
+		if (pConfig->CfgJoystickPrm.Joy_idx > GetDInput()->NumJoysticks()) pConfig->CfgJoystickPrm.Joy_idx = 0;
+#endif
+
+		// Read key mapping from file (or write default keymap)
+		if (!keymap.Read ("keymap.cfg")) keymap.Write ("keymap.cfg");
+
+		pState = new State(); TRACENEW
+
+		// Register main dialog window class
+		GetClassInfo (hInstance, "#32770", &wndClass); // override default dialog class
+		wndClass.hIcon = LoadIcon (hInstance, MAKEINTRESOURCE (IDI_MAIN_ICON));
+		RegisterClass (&wndClass);
+
+		// Find out if we are running under Linux/WINE
+		HKEY key;
+		long ret = RegOpenKeyEx (HKEY_CURRENT_USER, TEXT("Software\\Wine"), 0, KEY_QUERY_VALUE, &key);
+		RegCloseKey (key);
+		bWINEenv = (ret == ERROR_SUCCESS);
+
+		// Register HTML viewer class
+		RegisterHtmlCtrl (hInstance, UseHtmlInline());
+		CustomCtrl::RegisterClass (hInstance);
+
+		if (pConfig->CfgCmdlinePrm.bFastExit)
+			SetFastExit(true);
+		if (pConfig->CfgCmdlinePrm.bOpenVideoTab)
+			OpenVideoTab();
+
+		if (pConfig->CfgDemoPrm.bBkImage) {
+			hBk = CreateDialog (hInstance, MAKEINTRESOURCE(IDD_DEMOBK), NULL, BkMsgProc);
+			ShowWindow (hBk, SW_MAXIMIZE);
+		}
+
+		// Create the "launchpad" main dialog window
+		m_pLaunchpad = new orbiter::LaunchpadDialog (this); TRACENEW
+		m_pLaunchpad->Create (bStartVideoTab);
 	}
-	
-	// Create the "launchpad" main dialog window
-	m_pLaunchpad = new orbiter::LaunchpadDialog (this); TRACENEW
-	m_pLaunchpad->Create (bStartVideoTab);
+#else // ORBITER_USE_SDL3
+	{
+		// parameter manager - parses from master config file
+		pConfig->Load(MasterConfigFile);
+		strcpy (cfgpath, pConfig->CfgDirPrm.ConfigDir);   cfglen = strlen (cfgpath);
+
+		if (FAILED (hr = pDI->Create (hInstance))) return hr;
+
+		// Read key mapping from file (or write default keymap)
+		if (!keymap.Read ("keymap.cfg")) keymap.Write ("keymap.cfg");
+
+		pState = new State(); TRACENEW
+
+		if (pConfig->CfgCmdlinePrm.bFastExit)
+			SetFastExit(true);
+	}
+#endif // ORBITER_USE_SDL3
 
 	Instrument::RegisterBuiltinModes();
 
@@ -468,6 +579,7 @@ HRESULT Orbiter::Create (HINSTANCE hInstance)
 	// preload startup plugin modules
 	LoadStartupModules();
 
+#ifdef _WIN32
 	{
 		BOOL cleartype, ok;
 		ok = SystemParametersInfo(SPI_GETFONTSMOOTHING, 0, &cleartype, 0);
@@ -476,6 +588,7 @@ HRESULT Orbiter::Create (HINSTANCE hInstance)
 	}
 	if (pConfig->CfgDebugPrm.bDisableSmoothFont)
 		ActivateRoughType();
+#endif // _WIN32
 
 	memstat = new MemStat;
 	
@@ -489,7 +602,10 @@ HRESULT Orbiter::Create (HINSTANCE hInstance)
 void Orbiter::SaveConfig ()
 {
 	pConfig->Write (); // save current settings
-	m_pLaunchpad->WriteExtraParams ();
+#ifndef ORBITER_USE_SDL3
+	if (m_pLaunchpad)
+		m_pLaunchpad->WriteExtraParams ();
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -501,15 +617,19 @@ VOID Orbiter::CloseApp (bool fast_shutdown)
 	SaveConfig();
 	while (m_Plugin.size()) UnloadModule (m_Plugin.begin()->hDLL);
 
+#ifdef _WIN32
 	if (bRoughType)
 		DeactivateRoughType();
+#endif
 
 	if (!fast_shutdown) {
 		delete pDI;
 		if (memstat) delete memstat;
 		if (pConfig)  delete pConfig;
 		if (m_pLaunchpad) delete m_pLaunchpad;
+#ifdef _WIN32
 		if (hBk) DestroyWindow (hBk);
+#endif
 		if (pState)   delete pState;
 		if (script) delete script;
 		if (ncustomcmd) {
@@ -520,7 +640,9 @@ VOID Orbiter::CloseApp (bool fast_shutdown)
 			delete []customcmd;
 			customcmd = NULL;
 		}
+#ifdef _WIN32
 		oapiUnregisterCustomControls (hInst);
+#endif
 	}
 #ifdef _WIN32
 	timeEndPeriod (1);
@@ -702,10 +824,15 @@ VOID Orbiter::Launch (const char *scenario)
 {
 	PrintModules();
 
+#ifdef _WIN32
 	HCURSOR hCursor = SetCursor (LoadCursor (NULL, IDC_WAIT));
+#endif
 	bool have_state = false;
 	pConfig->Write (); // save current settings
-	m_pLaunchpad->WriteExtraParams ();
+#ifndef ORBITER_USE_SDL3
+	if (m_pLaunchpad)
+		m_pLaunchpad->WriteExtraParams ();
+#endif
 
 	if (!have_state && !pState->Read (ScnPath (scenario))) {
 		LOGOUT_ERR ("Scenario not found: %s", scenario);
@@ -715,7 +842,9 @@ VOID Orbiter::Launch (const char *scenario)
 	long m0 = memstat->HeapUsage();
 	CreateRenderWindow (pConfig, scenario);
 	simheapsize = memstat->HeapUsage()-m0;
+#ifdef _WIN32
 	SetCursor (hCursor);
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1047,15 +1176,83 @@ void Orbiter::ScreenToClient (POINT *pt) const
 //-----------------------------------------------------------------------------
 INT Orbiter::Run ()
 {
-    // Recieve and process Windows messages
+	if (!pConfig->CfgCmdlinePrm.LaunchScenario.empty())
+		Launch (pConfig->CfgCmdlinePrm.LaunchScenario.c_str());
+	// Otherwise wait for the user to make a selection from the scenario
+	// list in the launchpad dialog (Win32 path) or exit (SDL3 path).
+
+#ifdef ORBITER_USE_SDL3
+	// -----------------------------------------------------------------------
+	// SDL3 event loop
+	// On Windows SDL3 builds the D3D render window is still a Win32 HWND, so
+	// we also drain the Win32 message queue inside the SDL loop so that the
+	// render window continues to receive WM_* messages via DispatchMessage.
+	// -----------------------------------------------------------------------
+	bool sdlRunning = true;
+	BOOL bpCanRender = TRUE;
+
+	while (sdlRunning) {
+		SDL_Event sdlEv;
+		while (SDL_PollEvent(&sdlEv)) {
+			if (sdlEv.type == SDL_EVENT_QUIT)
+				sdlRunning = false;
+			// Keyboard / mouse SDL events are wired in Phase 3.
+		}
+
+#ifdef _WIN32
+		// Drain Win32 messages for the D3D render window (HWND).
+		MSG msg;
+		while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE)) {
+			if (msg.message == WM_QUIT) sdlRunning = false;
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+#endif // _WIN32
+
+		if (bSession) {
+			if (bAllowInput) bActive = true, bAllowInput = false;
+			if (BeginTimeStep(bRunning)) {
+				UpdateWorld();
+				EndTimeStep(bRunning);
+				if (bVisible) {
+					if (bActive) UserInput();
+					bRenderOnce = TRUE;
+				}
+				if (bRunning && bCapture)
+					CaptureVideoFrame();
+			}
+			if (m_pConsole)
+				m_pConsole->ParseCmd();
+		}
+
+		if (bRenderOnce && bVisible) {
+			if (FAILED(Render3DEnvironment())) {
+#ifdef _WIN32
+				if (hRenderWnd) DestroyWindow(hRenderWnd);
+#endif
+			}
+			bRenderOnce = FALSE;
+		}
+
+		if (bSession) {
+			BOOL bCanRender = TRUE;
+			if (bCanRender && !bpCanRender)
+				RestoreDeviceObjects();
+			bpCanRender = bCanRender;
+		} else {
+			bpCanRender = TRUE;
+		}
+	}
+	hRenderWnd = NULL;
+	return 0;
+
+#else // !ORBITER_USE_SDL3
+	// -----------------------------------------------------------------------
+	// Win32 message loop (DInput / classic Win32 UI path)
+	// -----------------------------------------------------------------------
     BOOL  bGotMsg, bCanRender, bpCanRender = TRUE;
     MSG   msg;
     PeekMessage (&msg, NULL, 0U, 0U, PM_NOREMOVE);
-
-	if (!pConfig->CfgCmdlinePrm.LaunchScenario.empty())
-		Launch (pConfig->CfgCmdlinePrm.LaunchScenario.c_str());
-	// otherwise wait for the user to make a selection from the scenario
-	// list in the launchpad dialog
 
 	while (WM_QUIT != msg.message) {
 
@@ -1105,6 +1302,7 @@ INT Orbiter::Run ()
     }
 	hRenderWnd = NULL;
     return msg.wParam;
+#endif // ORBITER_USE_SDL3
 }
 
 void Orbiter::SingleFrame ()
@@ -2569,8 +2767,10 @@ void Orbiter::BroadcastBufferedKeyboardEvent (char *kstate, DIDEVICEOBJECTDATA *
 
 LRESULT Orbiter::MsgProc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+#ifdef _WIN32
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
 		return 0;
+#endif
 
 	switch (uMsg) {
 
@@ -2732,6 +2932,7 @@ LRESULT Orbiter::MsgProc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 //-----------------------------------------------------------------------------
 bool Orbiter::ActivateRoughType ()
 {
+#ifdef _WIN32
 	//if (!bSysClearType) return false; // ClearType isn't user-enabled anyway
 	if (bRoughType) return false; // active already
 
@@ -2742,6 +2943,9 @@ bool Orbiter::ActivateRoughType ()
 		bRoughType = true;
 		return true;
 	} else return false;
+#else
+	return false;
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -2750,6 +2954,7 @@ bool Orbiter::ActivateRoughType ()
 //-----------------------------------------------------------------------------
 bool Orbiter::DeactivateRoughType ()
 {
+#ifdef _WIN32
 	bool bEnforceClearType = pConfig->CfgDebugPrm.bForceReenableSmoothFont;
 	if (!bSysClearType && !bEnforceClearType) return false; // ClearType isn't user-enabled anyway
 	if (!bRoughType) return false; // not active
@@ -2757,6 +2962,9 @@ bool Orbiter::DeactivateRoughType ()
 		bRoughType = false;
 		return true;
 	} else return false;
+#else
+	return false;
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -2790,7 +2998,10 @@ bool Orbiter::RegisterWindow (HINSTANCE hInstance, HWND hWnd, DWORD flag)
 
 void Orbiter::UpdateDeallocationProgress()
 {
-	m_pLaunchpad->UpdateWaitProgress();
+#ifndef ORBITER_USE_SDL3
+	if (m_pLaunchpad)
+		m_pLaunchpad->UpdateWaitProgress();
+#endif
 }
 
 HWND Orbiter::OpenDialog (int id, DLGPROC pDlg, void *context)
@@ -2847,6 +3058,7 @@ HWND Orbiter::IsDialog (HINSTANCE hInstance, DWORD resId)
 // Nonmember functions
 //=============================================================================
 
+#ifdef _WIN32
 INT_PTR CALLBACK BkMsgProc (HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch (uMsg) {
@@ -2858,3 +3070,4 @@ INT_PTR CALLBACK BkMsgProc (HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	}
 	return 0;
 }
+#endif // _WIN32

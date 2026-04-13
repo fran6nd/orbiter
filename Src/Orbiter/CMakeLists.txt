@@ -120,8 +120,16 @@ set(common_src
 # Resources
 	Orbiter.rc
 	Orbiter.ico
-	${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
 )
+# imgui_impl_win32 is needed on all Windows builds (DInput and SDL3) because
+# the D3D render window and dialogs are still Win32 HWNDs in both cases.
+# imgui_impl_sdl3 is added on SDL3 builds for Phase 2+ (SDL window path).
+if(WIN32)
+	list(APPEND common_src ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
+endif()
+if(ORBITER_USE_SDL3)
+	list(APPEND common_src ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp)
+endif()
 
 set(Orbiter_includes
 	${CMAKE_CURRENT_SOURCE_DIR}
@@ -161,12 +169,19 @@ add_executable(Orbiter ${common_src})
 
 set_target_properties(Orbiter
 	PROPERTIES
-	LINK_FLAGS "/SUBSYSTEM:CONSOLE /ENTRY:WinMainCRTStartup"
 	RUNTIME_OUTPUT_DIRECTORY ${ORBITER_BINARY_ROOT_DIR}
 	OUTPUT_NAME Orbiter
 	VS_DEBUGGER_WORKING_DIRECTORY ${ORBITER_BINARY_ROOT_DIR}
 	FOLDER Core
 )
+# On the non-SDL3 (DInput/Win32) path the entry function is WinMain.
+# On the SDL3 path SDL_main.h remaps main() to SDL_main and SDL3 supplies
+# its own WinMain, so the custom /ENTRY override is not needed.
+if(NOT ORBITER_USE_SDL3)
+	set_target_properties(Orbiter PROPERTIES
+		LINK_FLAGS "/SUBSYSTEM:CONSOLE /ENTRY:WinMainCRTStartup"
+	)
+endif()
 
 # Base compile definitions (always present on Windows)
 target_compile_definitions(Orbiter PRIVATE

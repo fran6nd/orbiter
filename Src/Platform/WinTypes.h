@@ -103,6 +103,13 @@ inline void CopyMemory(void* dest, const void* src, std::size_t count) { std::me
     ((DWORD)(BYTE)(ch0) | ((DWORD)(BYTE)(ch1) << 8) | \
      ((DWORD)(BYTE)(ch2) << 16) | ((DWORD)(BYTE)(ch3) << 24))
 
+// Message-related pointer-width types
+typedef uintptr_t WPARAM;
+typedef intptr_t  LPARAM;
+typedef intptr_t  LRESULT;
+typedef intptr_t  LONG_PTR;
+typedef uintptr_t UINT_PTR;
+
 // POINT — used in ScreenToClient and similar
 struct POINT { LONG x, y; };
 

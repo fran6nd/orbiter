@@ -13,7 +13,12 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_extras.h"
+#ifdef _WIN32
 #include "imgui_impl_win32.h"
+#endif
+#ifdef ORBITER_USE_SDL3
+#include "imgui_impl_sdl3.h"
+#endif
 #include "implot.h"
 #include "IconsFontAwesome6.h"
 #include <chrono>
@@ -546,7 +551,9 @@ void DialogManager::InitImGui()
 	monoFont = io.Fonts->AddFontFromFileTTF(prm.ImGui_MonospacedFontFile, prm.ImGui_FontSize);
 	manuscriptFont = io.Fonts->AddFontFromFileTTF(prm.ImGui_ManuscriptFontFile, prm.ImGui_FontSize);
 
+#ifdef _WIN32
 	ImGui_ImplWin32_Init(hWnd);
+#endif
 	gc->clbkImGuiInit();
 }
 
@@ -555,7 +562,9 @@ void DialogManager::ShutdownImGui()
 	if(!gc) return;
 
 	gc->clbkImGuiShutdown();
+#ifdef _WIN32
 	ImGui_ImplWin32_Shutdown();
+#endif
 	ImPlot::DestroyContext();
 	ImGui::DestroyContext();
 }
@@ -565,7 +574,9 @@ void DialogManager::ImGuiNewFrame()
 	if(!gc) return;
 
 	gc->clbkImGuiNewFrame();
+#ifdef _WIN32
 	ImGui_ImplWin32_NewFrame();
+#endif
 	ImGui::NewFrame();
 
 	RenderNotifications();
