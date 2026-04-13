@@ -46,6 +46,7 @@
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include <filesystem>
+#include "../Platform/Timer.h"
 
 #include "Tracy.hpp"
 
@@ -104,10 +105,7 @@ bool g_bStateUpdate = false;
 DWORD  launch_tick;      // counts the first 3 frames
 DWORD  g_vtxcount = 0;   // vertices/frame rendered (for diagnosis)
 DWORD  g_tilecount = 0;  // surface tiles/frame rendered (for diagnosis)
-BOOL   use_fine_counter;         // high-precision timer available?
-double fine_counter_step;        // step interval of high-precision counter (or 0 if not available)
-LARGE_INTEGER fine_counter_freq; // high-precision tick frequency
-LARGE_INTEGER fine_counter;      // current high-precision time value
+double fine_counter_step;        // step interval of high-resolution timer [s]
 TimeData td;             // timing information
 
 // Configuration parameters set from Driver.cfg
@@ -232,14 +230,38 @@ void SetEnvironmentVars ()
 	char *ppath = getenv ("PATH");
 	if (ppath) {
 		char *cbuf = new char[strlen(ppath)+15]; TRACENEW
+#ifdef _WIN32
 		sprintf (cbuf, "PATH=%s;Modules", ppath);
 		_putenv (cbuf);
+#else
+		sprintf (cbuf, "%s:Modules", ppath);
+		putenv (cbuf); // POSIX; cbuf must remain valid for lifetime of process
+#endif
+		// Note: on _WIN32 we delete cbuf because _putenv copies the string;
+		// on POSIX putenv retains the pointer so we intentionally leak it.
+#ifdef _WIN32
 		delete []cbuf;
 		cbuf = NULL;
+#endif
 	} else {
+#ifdef _WIN32
 		_putenv ("PATH=Modules");
+#else
+		putenv (const_cast<char*>("PATH=Modules"));
+#endif
 	}
-	_getcwd (cwd, 512);
+
+	// Capture the working directory using std::filesystem for portability.
+	{
+		std::error_code ec;
+		auto cwdPath = fs::current_path(ec);
+		if (!ec) {
+			strncpy(cwd, cwdPath.string().c_str(), sizeof(cwd) - 1);
+			cwd[sizeof(cwd) - 1] = '\0';
+		} else {
+			cwd[0] = '\0';
+		}
+	}
 }
 
 // =======================================================================
@@ -295,12 +317,10 @@ Orbiter::Orbiter ()
     //m_fnConfirmDevice = ConfirmDevice;
 
 	// Initialise timer
-	timeBeginPeriod(1);
-	if (use_fine_counter = QueryPerformanceFrequency(&fine_counter_freq)) {
-		double freq = fine_counter_freq.LowPart;
-		if (fine_counter_freq.HighPart) freq += fine_counter_freq.HighPart * 4294967296.0;
-		fine_counter_step = 1.0 / freq;
-	}
+#ifdef _WIN32
+	timeBeginPeriod(1); // raise system timer resolution to 1 ms on Windows
+#endif
+	fine_counter_step = orbiter::HighResTimer::resolution();
 
 	pDI             = new DInput(this); TRACENEW
 	pConfig         = new Config; TRACENEW
@@ -500,7 +520,9 @@ VOID Orbiter::CloseApp (bool fast_shutdown)
 		}
 		oapiUnregisterCustomControls (hInst);
 	}
+#ifdef _WIN32
 	timeEndPeriod (1);
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -754,8 +776,6 @@ HWND Orbiter::CreateRenderWindow (Config *pCfg, const char *scenario)
 	strcpy (ScenarioName, scenario);
 	g_qsaveid = 0;
 	launch_tick = 3;
-	if (pCfg->CfgDebugPrm.TimerMode == 2) use_fine_counter = FALSE;
-
 	// Generate logical world objects
 	if (gclient) {
 		Base::CreateStaticDeviceObjects();

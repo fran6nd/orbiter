@@ -10,19 +10,25 @@
 #ifndef D3DMATH_H
 #define D3DMATH_H
 
-#include <ddraw.h>
-#include <d3d.h>
+#ifdef _WIN32
+#   include <ddraw.h>
+#   include <d3d.h>
+#else
+#   include "../Platform/D3DTypes.h"
+#endif
 
 // ============================================================================
 // Begin stuff added by MS
 // ============================================================================
 #include "Vecmat.h"
 
+#ifdef _WIN32
 typedef struct {
 	D3DVALUE x, y, z;
 	D3DVALUE tu, tv;
 } POSTEXVERTEX;
 const DWORD POSTEXVERTEXFLAG = D3DFVF_XYZ | D3DFVF_TEX1 | D3DFVF_TEXCOORDSIZE2(0);
+#endif
 
 #ifndef __D3DMATH_CPP
 extern

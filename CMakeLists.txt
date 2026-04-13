@@ -191,6 +191,12 @@ option(
 )
 
 option(
+	ORBITER_USE_SDL3
+	"Use SDL3 for windowing and input (required for non-Windows / Vulkan client)"
+	OFF
+)
+
+option(
 	ORBITER_BUILD_XRSOUND
 	"Build XRSound module to enable sound in Orbiter"
 	ON

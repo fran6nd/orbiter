@@ -8,6 +8,11 @@
 
 #ifndef DI7FRAME_H
 #define DI7FRAME_H
+
+// DirectInput is only available on Windows. The rest of the codebase guards
+// any use of CDIFramework7 behind #ifdef _WIN32.
+#ifdef _WIN32
+
 #define STRICT 1
 #include <windows.h>
 #include <dinput.h>
@@ -68,4 +73,5 @@ public:
 	inline LPDIRECTINPUTDEVICE8 GetJoyDevice() { return m_pdidJoyDevice; }
 };
 
+#endif // _WIN32
 #endif // !DI7FRAME_H
