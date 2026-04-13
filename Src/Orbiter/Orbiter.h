@@ -172,10 +172,12 @@ public:
 	inline void    SetFastExit (bool fexit) { bFastExit = fexit; }
 	inline bool    UseHtmlInline() { return (pConfig->CfgDebugPrm.bHtmlScnDesc == 1 || pConfig->CfgDebugPrm.bHtmlScnDesc == 2 && !bWINEenv); }
 
-	// DirectInput components
-	inline CDIFramework7 *GetDInput() const { return pDI->GetDIFrame(); }
-	inline LPDIRECTINPUTDEVICE8 GetKbdDevice() const { return pDI->GetKbdDevice(); }
-	inline LPDIRECTINPUTDEVICE8 GetJoyDevice() const { return pDI->GetJoyDevice(); }
+	// DirectInput components — only available on the DInput back-end.
+#if ORBITER_DINPUT
+	inline CDIFramework7        *GetDInput()    const { return pDI->GetDIFrame(); }
+	inline LPDIRECTINPUTDEVICE8  GetKbdDevice() const { return pDI->GetKbdDevice(); }
+	inline LPDIRECTINPUTDEVICE8  GetJoyDevice() const { return pDI->GetJoyDevice(); }
+#endif
 
 	// memory monitor
 	MemStat *memstat;
@@ -319,14 +321,16 @@ protected:
 	HRESULT UserInput ();
 	void KbdInputImmediate_System    (char *kstate);
 	void KbdInputImmediate_OnRunning (char *buffer);
-	void KbdInputBuffered_System     (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n);
-	void KbdInputBuffered_OnRunning  (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n);
-	void UserJoyInput_System (DIJOYSTATE2 *js);
-	void UserJoyInput_OnRunning (DIJOYSTATE2 *js);
+	void UserJoyInput_System    (orbiter::JoystickState *js);
+	void UserJoyInput_OnRunning (orbiter::JoystickState *js);
 	bool MouseEvent (UINT event, DWORD state, DWORD x, DWORD y);
 	bool BroadcastMouseEvent (UINT event, DWORD state, DWORD x, DWORD y);
 	bool BroadcastImmediateKeyboardEvent (char *kstate);
+#if ORBITER_DINPUT
+	void KbdInputBuffered_System    (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n);
+	void KbdInputBuffered_OnRunning (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n);
 	void BroadcastBufferedKeyboardEvent (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n);
+#endif
 
 	void BroadcastGlobalInit();
 
