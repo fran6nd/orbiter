@@ -32,7 +32,8 @@ add_dependencies(LuaInterpreter
 )
 
 if(ORBITER_BUILD_D3D9CLIENT)
-  add_dependencies(LuaInterpreter	D3D9Client D3D9Client_Interface)
+  add_dependencies(LuaInterpreter D3D9Client D3D9Client_Interface)
+  target_compile_definitions(LuaInterpreter PRIVATE ORBITER_WITH_D3D9CLIENT)
 endif()
 
 if(ORBITER_BUILD_XRSOUND)

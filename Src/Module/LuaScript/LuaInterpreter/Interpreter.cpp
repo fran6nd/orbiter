@@ -7,7 +7,9 @@
 #include "VesselAPI.h"
 #include "MFDAPI.h"
 #include "DrawAPI.h"
+#ifdef ORBITER_WITH_D3D9CLIENT
 #include "gcCoreAPI.h"
+#endif
 #include <list>
 
 using std::min;
@@ -73,9 +75,11 @@ Interpreter::Interpreter ()
 }
 
 void Interpreter::LazyInitGCCore() {
+#ifdef ORBITER_WITH_D3D9CLIENT
 	if(gcCoreInitialized) return;
 	gcCoreInitialized = true;
 	pCore = gcGetCoreInterface();
+#endif
 }
 
 static int traceback(lua_State *L) {
