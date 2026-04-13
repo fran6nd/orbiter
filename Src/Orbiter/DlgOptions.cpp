@@ -162,12 +162,13 @@ void DlgOptions::DrawUI()
 void DlgOptions::DrawJoystick()
 {
 	ImGui::SeparatorText("Joystick device");
+	const char *preview = "<Disabled>";
+#if ORBITER_DINPUT
 	DWORD ndev;
 	DIDEVICEINSTANCE* joylist;
 	g_pOrbiter->GetDInput()->GetJoysticks(&joylist, &ndev);
 	DWORD &jidx = g_pOrbiter->Cfg()->CfgJoystickPrm.Joy_idx;
 
-	const char *preview = "<Disabled>";
 	if(jidx > 0 && jidx <= ndev) {
 		preview = joylist[jidx - 1].tszProductName;
 	}
@@ -192,6 +193,10 @@ void DlgOptions::DrawJoystick()
 		}
 		ImGui::EndAnimatedCombo();
 	}
+#else
+	ImGui::TextDisabled("Joystick device selection not available (SDL3 build)");
+	DWORD &jidx = g_pOrbiter->Cfg()->CfgJoystickPrm.Joy_idx;
+#endif
 
 	ImGui::BeginDisabled(jidx == 0);
 		ImGui::SeparatorText("Main engine control");

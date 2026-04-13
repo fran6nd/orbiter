@@ -417,7 +417,9 @@ HRESULT Orbiter::Create (HINSTANCE hInstance)
 	if (FAILED (hr = pDI->Create (hInstance))) return hr;
 
 	// validate configuration
+#if ORBITER_DINPUT
 	if (pConfig->CfgJoystickPrm.Joy_idx > GetDInput()->NumJoysticks()) pConfig->CfgJoystickPrm.Joy_idx = 0;
+#endif
 
 	// Read key mapping from file (or write default keymap)
 	if (!keymap.Read ("keymap.cfg")) keymap.Write ("keymap.cfg");
@@ -880,9 +882,9 @@ HWND Orbiter::CreateRenderWindow (Config *pCfg, const char *scenario)
 
 	// suppress throttle update on launch
 	if (pDI->joyprop.bThrottle && pCfg->CfgJoystickPrm.bThrottleIgnore) {
-		DIJOYSTATE2 js;
+		orbiter::JoystickState js;
 		if (pDI->PollJoystick(&js))
-			plZ4 = *(long*)(((BYTE*)&js) + pDI->joyprop.ThrottleOfs) >> 3;
+			plZ4 = js.throttleValue(pDI->joyprop.ThrottleAxis) >> 3;
 	}
 
 	return hRenderWnd;
@@ -2015,59 +2017,74 @@ const char *Orbiter::KeyState() const
 //-----------------------------------------------------------------------------
 HRESULT Orbiter::UserInput ()
 {
-	static char buffer[256];
-	DIDEVICEOBJECTDATA dod[10];
-	LPDIRECTINPUTDEVICE8 didev;
-	DWORD i, dwItems = 10;
-	HRESULT hr;
+	DWORD i;
 	bool skipkbd = false;
 
 	memset(simkstate, 0, 256);
-	for (i = 0; i < 15; i++) ctrlKeyboard[i] = ctrlJoystick[i] = 0; // reset keyboard and joystick attitude requests
+	for (i = 0; i < 15; i++) ctrlKeyboard[i] = ctrlJoystick[i] = 0;
 
 	// skip keyboard if dialogs are open
 	if ((g_input && g_input->IsActive()) ||
 	    (g_select && g_select->IsActive())) skipkbd = true;
 
-	if (didev = GetDInput()->GetKbdDevice()) {
-		ImGuiIO& io = ImGui::GetIO();
-		// keyboard input: immediate key interpretation
-		hr = didev->GetDeviceState (sizeof(buffer), &buffer);
-		if ((hr == DIERR_NOTACQUIRED || hr == DIERR_INPUTLOST) && SUCCEEDED (didev->Acquire()))
-			hr = didev->GetDeviceState (sizeof(buffer), &buffer);
+#if ORBITER_DINPUT
+	// DirectInput keyboard — immediate and buffered events
+	{
+		static char buffer[256];
+		DIDEVICEOBJECTDATA dod[10];
+		DWORD dwItems = 10;
+		HRESULT hr;
+		LPDIRECTINPUTDEVICE8 didev;
 
-		// Direct input bypasses the proc loop so we skip it here
-		if (SUCCEEDED (hr) && !io.WantCaptureKeyboard)
-			for (i = 0; i < 256; i++)
-				simkstate[i] |= buffer[i];
-		bool consume = BroadcastImmediateKeyboardEvent (simkstate);
-		if (!skipkbd && !consume) {
-			KbdInputImmediate_System (simkstate);
-			if (bRunning) KbdInputImmediate_OnRunning (simkstate);
-		}
+		if (didev = GetDInput()->GetKbdDevice()) {
+			ImGuiIO& io = ImGui::GetIO();
 
-		// keyboard input: buffered key events
-		hr = didev->GetDeviceData (sizeof(DIDEVICEOBJECTDATA), dod, &dwItems, 0);
-		if ((hr == DIERR_NOTACQUIRED || hr == DIERR_INPUTLOST) && SUCCEEDED (didev->Acquire()))
-			hr = didev->GetDeviceData (sizeof(DIDEVICEOBJECTDATA), dod, &dwItems, 0);
-		if (SUCCEEDED (hr) && !io.WantCaptureKeyboard) {
-			BroadcastBufferedKeyboardEvent (buffer, dod, dwItems);
-			if (!skipkbd) {
-				KbdInputBuffered_System (buffer, dod, dwItems);
-				if (bRunning) KbdInputBuffered_OnRunning (buffer, dod, dwItems);
+			hr = didev->GetDeviceState(sizeof(buffer), &buffer);
+			if ((hr == DIERR_NOTACQUIRED || hr == DIERR_INPUTLOST) && SUCCEEDED(didev->Acquire()))
+				hr = didev->GetDeviceState(sizeof(buffer), &buffer);
+
+			if (SUCCEEDED(hr) && !io.WantCaptureKeyboard)
+				for (i = 0; i < 256; i++)
+					simkstate[i] |= buffer[i];
+
+			bool consume = BroadcastImmediateKeyboardEvent(simkstate);
+			if (!skipkbd && !consume) {
+				KbdInputImmediate_System(simkstate);
+				if (bRunning) KbdInputImmediate_OnRunning(simkstate);
+			}
+
+			hr = didev->GetDeviceData(sizeof(DIDEVICEOBJECTDATA), dod, &dwItems, 0);
+			if ((hr == DIERR_NOTACQUIRED || hr == DIERR_INPUTLOST) && SUCCEEDED(didev->Acquire()))
+				hr = didev->GetDeviceData(sizeof(DIDEVICEOBJECTDATA), dod, &dwItems, 0);
+			if (SUCCEEDED(hr) && !io.WantCaptureKeyboard) {
+				BroadcastBufferedKeyboardEvent(buffer, dod, dwItems);
+				if (!skipkbd) {
+					KbdInputBuffered_System(buffer, dod, dwItems);
+					if (bRunning) KbdInputBuffered_OnRunning(buffer, dod, dwItems);
+				}
 			}
 		}
-		//if (hr == DI_BUFFEROVERFLOW) MessageBeep (-1);
 	}
+#else
+	// SDL3 keyboard events are handled in the event loop (future phase).
+	// For now, broadcast whatever ended up in simkstate via the Win32 path.
+	{
+		bool consume = BroadcastImmediateKeyboardEvent(simkstate);
+		if (!skipkbd && !consume) {
+			KbdInputImmediate_System(simkstate);
+			if (bRunning) KbdInputImmediate_OnRunning(simkstate);
+		}
+	}
+#endif // ORBITER_DINPUT
 
-	for (i = 0; i < 15; i++) ctrlTotal[i] = ctrlKeyboard[i]; // update attitude requests
+	for (i = 0; i < 15; i++) ctrlTotal[i] = ctrlKeyboard[i];
 
 	// joystick input
-	DIJOYSTATE2 js;
-	if (pDI->PollJoystick (&js)) {
-		UserJoyInput_System (&js);                  // general joystick functions
-		if (bRunning) UserJoyInput_OnRunning (&js); // joystick vessel control functions
-		for (i = 0; i < 15; i++) ctrlTotal[i] += ctrlJoystick[i]; // update thrust requests
+	orbiter::JoystickState js;
+	if (pDI->PollJoystick(&js)) {
+		UserJoyInput_System(&js);
+		if (bRunning) UserJoyInput_OnRunning(&js);
+		for (i = 0; i < 15; i++) ctrlTotal[i] += ctrlJoystick[i];
 	}
 
 	g_camera->UpdateMouse();
@@ -2087,6 +2104,7 @@ bool Orbiter::SendKbdBuffered(DWORD key, DWORD *mod, DWORD nmod, bool onRunningO
 {
 	if (onRunningOnly && !bRunning) return false;
 
+#if ORBITER_DINPUT
 	DIDEVICEOBJECTDATA dod;
 	dod.dwData = 0x80;
 	dod.dwOfs = key;
@@ -2098,6 +2116,9 @@ bool Orbiter::SendKbdBuffered(DWORD key, DWORD *mod, DWORD nmod, bool onRunningO
 	KbdInputBuffered_System (buffer, &dod, 1);
 	KbdInputBuffered_OnRunning (buffer, &dod, 1);
 	return true;
+#else
+	return false;
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -2288,6 +2309,7 @@ void Orbiter::KbdInputImmediate_OnRunning (char *kstate)
 	}
 }
 
+#if ORBITER_DINPUT
 //-----------------------------------------------------------------------------
 // Name: KbdInputBuffered_System ()
 // Desc: General user keyboard buffered key interpretation. Processes keys
@@ -2351,6 +2373,9 @@ void Orbiter::KbdInputBuffered_System (char *kstate, DIDEVICEOBJECTDATA *dod, DW
 	}
 }
 
+#endif // ORBITER_DINPUT
+
+#if ORBITER_DINPUT
 //-----------------------------------------------------------------------------
 // Name: KbdInputBuffered_OnRunning ()
 // Desc: User keyboard buffered key interpretation in running simulation
@@ -2398,11 +2423,13 @@ void Orbiter::KbdInputBuffered_OnRunning (char *kstate, DIDEVICEOBJECTDATA *dod,
 	}
 }
 
+#endif // ORBITER_DINPUT
+
 //-----------------------------------------------------------------------------
 // Name: UserJoyInput_System ()
 // Desc: General user joystick input (also functional when paused)
 //-----------------------------------------------------------------------------
-void Orbiter::UserJoyInput_System (DIJOYSTATE2 *js)
+void Orbiter::UserJoyInput_System (orbiter::JoystickState *js)
 {
 	if (LOWORD (js->rgdwPOV[0]) != 0xFFFF) {
 		DWORD dir = js->rgdwPOV[0];
@@ -2438,7 +2465,7 @@ void Orbiter::UserJoyInput_System (DIJOYSTATE2 *js)
 // Name: UserJoyInput_OnRunning ()
 // Desc: User joystick input query for running simulation (ship controls etc.)
 //-----------------------------------------------------------------------------
-void Orbiter::UserJoyInput_OnRunning (DIJOYSTATE2 *js)
+void Orbiter::UserJoyInput_OnRunning (orbiter::JoystickState *js)
 {
 	if (bEnableAtt) {
 		if (js->lX) {
@@ -2461,7 +2488,7 @@ void Orbiter::UserJoyInput_OnRunning (DIJOYSTATE2 *js)
 	}
 
 	if (pDI->joyprop.bThrottle) { // main thrusters via throttle control
-		long lZ4 = *(long*)(((BYTE*)js)+pDI->joyprop.ThrottleOfs) >> 3;
+		long lZ4 = js->throttleValue(pDI->joyprop.ThrottleAxis) >> 3;
 		if (lZ4 != plZ4) {
 			if (ignorefirst) {
 				if (abs(lZ4-plZ4) > 10) ignorefirst = false;
@@ -2516,6 +2543,7 @@ bool Orbiter::BroadcastImmediateKeyboardEvent (char *kstate)
 	return consume;
 }
 
+#if ORBITER_DINPUT
 void Orbiter::BroadcastBufferedKeyboardEvent (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n)
 {
 	for (DWORD i = 0; i < n; i++) {
@@ -2530,6 +2558,7 @@ void Orbiter::BroadcastBufferedKeyboardEvent (char *kstate, DIDEVICEOBJECTDATA *
 		if (consume) dod[i].dwData = 0; // remove key from process queue
 	}
 }
+#endif // ORBITER_DINPUT
 
 //-----------------------------------------------------------------------------
 // Name: MsgProc()

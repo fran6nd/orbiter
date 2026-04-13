@@ -9,9 +9,10 @@
 #ifndef DI7FRAME_H
 #define DI7FRAME_H
 
-// DirectInput is only available on Windows. The rest of the codebase guards
-// any use of CDIFramework7 behind #ifdef _WIN32.
-#ifdef _WIN32
+// DirectInput is available on Windows only when SDL3 is not the active back-end.
+// When ORBITER_USE_SDL3 is defined the DInput path is compiled out entirely so
+// that SDL3 can be used as a drop-in replacement without link-time conflicts.
+#if defined(_WIN32) && !defined(ORBITER_USE_SDL3)
 
 #define STRICT 1
 #include <windows.h>
@@ -73,5 +74,5 @@ public:
 	inline LPDIRECTINPUTDEVICE8 GetJoyDevice() { return m_pdidJoyDevice; }
 };
 
-#endif // _WIN32
+#endif // defined(_WIN32) && !defined(ORBITER_USE_SDL3)
 #endif // !DI7FRAME_H

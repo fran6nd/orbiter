@@ -281,6 +281,7 @@ void LogOut_DDErr (HRESULT hr, const char *func, const char *file, int line) {
 	LogOut ("---------------------------------------------------------------");
 }
 
+#if defined(_WIN32) && !defined(ORBITER_USE_SDL3)
 void LogOut_DIErr (HRESULT hr, const char *func, const char *file, int line) {
 	static char errmsg[256] = ">>> ERROR: DInput error ";
 	static char *err = errmsg+24;
@@ -303,6 +304,7 @@ void LogOut_DIErr (HRESULT hr, const char *func, const char *file, int line) {
 	LogOut();
 	LogOut ("---------------------------------------------------------------");
 }
+#endif // defined(_WIN32) && !defined(ORBITER_USE_SDL3)
 
 void LogOut_Warning(const char* func, const char* file, int line, const char* msg, ...)
 {

@@ -8,8 +8,8 @@
 
 #include "Di7frame.h"
 
-// Di7frame.cpp only compiles on Windows — CDIFramework7 is guarded in the header.
-#ifdef _WIN32
+// Di7frame.cpp only compiles when the DirectInput back-end is active.
+#if defined(_WIN32) && !defined(ORBITER_USE_SDL3)
 
 #include "D3d7util.h"
 #include "Log.h"
@@ -223,4 +223,4 @@ void CDIFramework7::DestroyDevices()
 	DestroyJoyDevice();
 }
 
-#endif // _WIN32
+#endif // defined(_WIN32) && !defined(ORBITER_USE_SDL3)
