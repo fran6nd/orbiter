@@ -230,14 +230,38 @@ void SetEnvironmentVars ()
 	char *ppath = getenv ("PATH");
 	if (ppath) {
 		char *cbuf = new char[strlen(ppath)+15]; TRACENEW
+#ifdef _WIN32
 		sprintf (cbuf, "PATH=%s;Modules", ppath);
 		_putenv (cbuf);
+#else
+		sprintf (cbuf, "%s:Modules", ppath);
+		putenv (cbuf); // POSIX; cbuf must remain valid for lifetime of process
+#endif
+		// Note: on _WIN32 we delete cbuf because _putenv copies the string;
+		// on POSIX putenv retains the pointer so we intentionally leak it.
+#ifdef _WIN32
 		delete []cbuf;
 		cbuf = NULL;
+#endif
 	} else {
+#ifdef _WIN32
 		_putenv ("PATH=Modules");
+#else
+		putenv (const_cast<char*>("PATH=Modules"));
+#endif
 	}
-	_getcwd (cwd, 512);
+
+	// Capture the working directory using std::filesystem for portability.
+	{
+		std::error_code ec;
+		auto cwdPath = fs::current_path(ec);
+		if (!ec) {
+			strncpy(cwd, cwdPath.string().c_str(), sizeof(cwd) - 1);
+			cwd[sizeof(cwd) - 1] = '\0';
+		} else {
+			cwd[0] = '\0';
+		}
+	}
 }
 
 // =======================================================================

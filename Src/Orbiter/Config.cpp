@@ -32,12 +32,12 @@ static int g_buflen = 1024;
 const bool bEchoAll_default = false;          // only echo non-default parameters
 
 CFG_DIRPRM CfgDirPrm_default = {
-	".\\Config\\",		// ConfigDir
-	".\\Meshes\\",		// MeshDir
-	".\\Textures\\",	// TextureDir
-	".\\Textures2\\",	// HightexDir
-	".\\Textures\\",	// PlanetTexDir
-	".\\Scenarios\\"	// ScnDir
+	"./Config/",		// ConfigDir
+	"./Meshes/",		// MeshDir
+	"./Textures/",		// TextureDir
+	"./Textures2/",		// HightexDir
+	"./Textures/",		// PlanetTexDir
+	"./Scenarios/"		// ScnDir
 };
 
 CFG_PHYSICSPRM CfgPhysicsPrm_default = {
