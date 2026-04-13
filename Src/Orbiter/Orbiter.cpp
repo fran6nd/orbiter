@@ -747,11 +747,13 @@ HWND Orbiter::CreateRenderWindow (Config *pCfg, const char *scenario)
 	if (hRenderWnd) {
 		bActive = true;
 
-		// Create keyboard device
+		// Create keyboard device (DInput path only; SDL3 handles keyboard natively)
+#if ORBITER_DINPUT
 		if (!pDI->CreateKbdDevice ()) {
 			CloseSession ();
 			return 0;
 		}
+#endif
 
 		// Create joystick device
 		if (pDI->CreateJoyDevice ())
