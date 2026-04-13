@@ -326,11 +326,9 @@ protected:
 	bool MouseEvent (UINT event, DWORD state, DWORD x, DWORD y);
 	bool BroadcastMouseEvent (UINT event, DWORD state, DWORD x, DWORD y);
 	bool BroadcastImmediateKeyboardEvent (char *kstate);
-#if ORBITER_DINPUT
 	void KbdInputBuffered_System    (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n);
 	void KbdInputBuffered_OnRunning (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n);
 	void BroadcastBufferedKeyboardEvent (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n);
-#endif
 
 	void BroadcastGlobalInit();
 
