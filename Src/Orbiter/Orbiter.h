@@ -159,6 +159,9 @@ public:
 	// Accessor functions
 	inline HINSTANCE GetInstance() const { return hInst; }
 	inline HWND    GetRenderWnd() const { return hRenderWnd; }
+#ifdef ORBITER_USE_SDL3
+	inline struct SDL_Window *GetSDLWindow() const { return m_sdlWindow; }
+#endif
 	inline bool    IsFullscreen() const { return bFullscreen; }
 	inline DWORD   ViewW() const { return viewW; }
 	inline DWORD   ViewH() const { return viewH; }
@@ -369,7 +372,12 @@ private:
 	DInput         *pDI;
 	HINSTANCE       hInst;         // orbiter instance handle
 	HWND            hRenderWnd;    // render window handle (NULL if no render support)
+#ifdef ORBITER_USE_SDL3
+	struct SDL_Window *m_sdlWindow = nullptr; // SDL3 window (Phase 2+; null until created)
+#endif
+#ifdef _WIN32
 	HWND            hBk;           // background window handle (demo mode only)
+#endif
 	BOOL            bRenderOnce;   // flag for single frame render request
 	BOOL            bEnableLighting;
 	bool			bUseStencil;   // render device provides stencil buffer (and user requests it)

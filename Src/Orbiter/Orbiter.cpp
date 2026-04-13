@@ -419,7 +419,9 @@ Orbiter::Orbiter ()
 	viewW = viewH = viewBPP = 0;
 	gclient         = NULL;
 	hRenderWnd      = NULL;
+#ifdef _WIN32
 	hBk             = NULL;
+#endif
 	hScnInterp      = NULL;
 	snote_playback  = NULL;
 	nsnote          = 0;
@@ -468,7 +470,13 @@ Orbiter::Orbiter ()
 			g_pOrbiter->OpenHelp (&DefHelpContext);			
 		});
 	RegisterMenuCmd("Save",     "MenuInfoBar/save.png",     [](void *) {g_pOrbiter->Quicksave();});
-	RegisterMenuCmd("Exit",     "MenuInfoBar/exit.png",     [](void *) {PostMessage(g_pOrbiter->GetRenderWnd(), WM_CLOSE, 0, 0);});
+	RegisterMenuCmd("Exit",     "MenuInfoBar/exit.png",     [](void *) {
+#ifdef _WIN32
+		PostMessage(g_pOrbiter->GetRenderWnd(), WM_CLOSE, 0, 0);
+#else
+		g_pOrbiter->CloseSession();
+#endif
+	});
 
 }
 
@@ -859,8 +867,11 @@ HWND Orbiter::CreateRenderWindow (Config *pCfg, const char *scenario)
 	LOGOUT("");
 	LOGOUT("**** Creating simulation session");
 
-	m_pLaunchpad->Hide(); // hide launchpad dialog while the render window is visible
-	
+#ifndef ORBITER_USE_SDL3
+	if (m_pLaunchpad)
+		m_pLaunchpad->Hide(); // hide launchpad dialog while the render window is visible
+#endif
+
 	if (gclient) {
 		if(pState->SplashScreen())
 			gclient->clbkSetSplashScreen(pState->SplashScreen(), pState->SplashColor());
@@ -1060,8 +1071,10 @@ void Orbiter::CloseSession ()
 	}
 
 	if (pConfig->CfgDebugPrm.ShutdownMode == 0 && !bFastExit) { // normal cleanup
-		m_pLaunchpad->Show(); // show launchpad dialog again
-		m_pLaunchpad->ShowWaitPage (true, simheapsize);
+#ifndef ORBITER_USE_SDL3
+		if (m_pLaunchpad) m_pLaunchpad->Show(); // show launchpad dialog again
+		if (m_pLaunchpad) m_pLaunchpad->ShowWaitPage (true, simheapsize);
+#endif
 		if (gclient) {
 			gclient->clbkCloseSession (false);
 			Base::DestroyStaticDeviceObjects ();
@@ -1091,7 +1104,9 @@ void Orbiter::CloseSession ()
 		pDI->DestroyDevices();
 		pDI->SetRenderWindow(NULL);
 
-		m_pLaunchpad->ShowWaitPage (false);
+#ifndef ORBITER_USE_SDL3
+		if (m_pLaunchpad) m_pLaunchpad->ShowWaitPage (false);
+#endif
 	} else {
 		if (pDlgMgr)  { delete pDlgMgr; pDlgMgr = 0; }
 		if (gclient) {
@@ -1109,9 +1124,13 @@ void Orbiter::CloseSession ()
 			LOGOUT("**** Fast process shutdown\r\n");
 			exit (0); // just kill the process
 		} else {
+#ifdef _WIN32
 			LOGOUT("**** Respawning Orbiter process\r\n");
 			const char *name = "orbiter.exe";
 			_execl (name, name, "-l", NULL);   // respawn the process
+#else
+			exit (0);
+#endif
 		}
 	}
 	LOGOUT("**** Closing simulation session");
@@ -1166,8 +1185,10 @@ HRESULT Orbiter::Render3DEnvironment (bool hidedialogs)
 //-----------------------------------------------------------------------------
 void Orbiter::ScreenToClient (POINT *pt) const
 {
+#ifdef _WIN32
 	if (!IsFullscreen() && hRenderWnd)
 		::ScreenToClient (hRenderWnd, pt);
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1323,15 +1344,20 @@ void Orbiter::SingleFrame ()
 void Orbiter::TerminateOnError ()
 {
 	LogOut (">>> TERMINATING <<<");
+#ifdef _WIN32
 	if (hRenderWnd) ShowWindow (hRenderWnd, FALSE);
 	MessageBox (NULL,
 		"Terminating after critical error. See Orbiter.log for details.",
 		"Orbiter: Critical Error", MB_OK | MB_ICONERROR);
+#else
+	fprintf(stderr, "Terminating after critical error. See Orbiter.log for details.\n");
+#endif
 	exit (1);
 }
 
 void Orbiter::UpdateServerWnd (HWND hWnd)
 {
+#ifdef _WIN32
 	char cbuf[256];
 	sprintf (cbuf, "%0.0fs", td.SysT0);
 	SetWindowText (GetDlgItem (hWnd, IDC_STATIC1), cbuf);
@@ -1347,12 +1373,13 @@ void Orbiter::UpdateServerWnd (HWND hWnd)
 	SetWindowText (GetDlgItem (hWnd, IDC_STATIC6), cbuf);
 	sprintf (cbuf, "%zd", g_psys->nVessel());
 	SetWindowText (GetDlgItem (hWnd, IDC_STATIC7), cbuf);
+#endif
 }
 
 void Orbiter::InitRotationMode ()
 {
 	bKeepFocus = true;
-
+#ifdef _WIN32
 	// Checks if the cursor is already hidden
 	if (g_iCursorShowCount == 0) {
 		g_iCursorShowCount = ShowCursor(FALSE);
@@ -1371,11 +1398,13 @@ void Orbiter::InitRotationMode ()
 		RECT rScreen = {pLeftTop.x, pLeftTop.y, pRightBottom.x, pRightBottom.y};
 		ClipCursor (&rScreen);
 	}
+#endif
 }
 
 void Orbiter::ExitRotationMode ()
 {
 	bKeepFocus = false;
+#ifdef _WIN32
 	ReleaseCapture ();
 
 	// Checks if the cursor is already hidden
@@ -1387,6 +1416,7 @@ void Orbiter::ExitRotationMode ()
 	if (!bFullscreen && hRenderWnd) {
 		ClipCursor (NULL);
 	}
+#endif // _WIN32
 }
 
 void Orbiter::OnOptionChanged(DWORD cat, DWORD item)
@@ -2034,9 +2064,13 @@ void Orbiter::EndTimeStep (bool running)
 	g_bForceUpdate = false;                        // clear flag
 
 	// check for termination of demo mode
-	if (SessionLimitReached())
+	if (SessionLimitReached()) {
+#ifdef _WIN32
 		if (hRenderWnd) PostMessage(hRenderWnd, WM_CLOSE, 0, 0);
-		else CloseSession();
+		else
+#endif
+		CloseSession();
+	}
 }
 
 bool Orbiter::SessionLimitReached() const
@@ -2197,8 +2231,11 @@ VOID Orbiter::UpdateWorld ()
 
 	g_bStateUpdate = false;
 
-	if (!KillVessels())  // kill any vessels marked for deletion
+	if (!KillVessels()) { // kill any vessels marked for deletion
+#ifdef _WIN32
 		if (hRenderWnd) DestroyWindow (hRenderWnd);
+#endif
+	}
 
 	//g_texmanager->OutputInfo();
 }
@@ -2555,7 +2592,11 @@ void Orbiter::KbdInputBuffered_System (char *kstate, DIDEVICEOBJECTDATA *dod, DW
 			if (bPlayback) EndPlayback();
 			else ToggleRecorder ();
 		} else if (keymap.IsLogicalKey (key, kstate, OAPI_LKEY_Quit)) {
+#ifdef _WIN32
 			if (hRenderWnd) PostMessage (hRenderWnd, WM_CLOSE, 0, 0);
+#else
+			CloseSession();
+#endif
 		} else if (keymap.IsLogicalKey (key, kstate, OAPI_LKEY_SelectPrevVessel)) {
 			if (g_pfocusobj) SetFocusObject (g_pfocusobj);
 		}
