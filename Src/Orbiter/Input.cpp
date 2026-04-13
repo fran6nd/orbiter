@@ -7,7 +7,8 @@
 //
 // Conditionally compiled:
 //   ORBITER_DINPUT=1  — full DirectInput back-end (Windows, no SDL3 override)
-//   ORBITER_DINPUT=0  — no-op stub; SDL3 input to be wired in a later phase
+//   ORBITER_DINPUT=0  — keyboard state collected from WM_KEYDOWN/WM_KEYUP
+//                       via OnKey(); joystick not yet wired.
 // =======================================================================
 
 #include "Input.h"
@@ -75,6 +76,65 @@ bool DInput::PollJoystick(orbiter::JoystickState *state)
     return false;
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// SDL3 / non-DInput keyboard implementation
+// ---------------------------------------------------------------------------
+
+#if !ORBITER_DINPUT
+
+bool DInput::CreateKbdDevice()
+{
+    // No explicit device creation needed — state is collected via OnKey().
+    return true;
+}
+
+void DInput::OnKey(unsigned long oapi_key, bool pressed)
+{
+    if (oapi_key == 0 || oapi_key >= 256) return;
+
+    if (pressed) {
+        bool was_up = !(m_kbdState[oapi_key] & 0x80);
+        m_kbdState[oapi_key] = 0x80;
+        // Only emit a buffered DOWN event on the first press, not on auto-repeat.
+        if (was_up && m_kbdEventCount < KBD_EVENT_BUF) {
+            DIDEVICEOBJECTDATA &ev = m_kbdEvents[m_kbdEventCount++];
+            ev.dwOfs       = oapi_key;
+            ev.dwData      = 0x80;
+            ev.dwTimeStamp = GetTickCount();
+            ev.uAppData    = 0;
+        }
+    } else {
+        m_kbdState[oapi_key] = 0x00;
+        if (m_kbdEventCount < KBD_EVENT_BUF) {
+            DIDEVICEOBJECTDATA &ev = m_kbdEvents[m_kbdEventCount++];
+            ev.dwOfs       = oapi_key;
+            ev.dwData      = 0x00;
+            ev.dwTimeStamp = GetTickCount();
+            ev.uAppData    = 0;
+        }
+    }
+}
+
+void DInput::ClearKeyboard()
+{
+    memset(m_kbdState, 0, sizeof(m_kbdState));
+    m_kbdEventCount = 0;
+}
+
+void DInput::FlushKeyboard(char *state_out,
+                            DIDEVICEOBJECTDATA *buf,
+                            unsigned long *count,
+                            unsigned long capacity)
+{
+    memcpy(state_out, m_kbdState, 256);
+    unsigned long n = (m_kbdEventCount < capacity) ? m_kbdEventCount : capacity;
+    if (n) memcpy(buf, m_kbdEvents, n * sizeof(DIDEVICEOBJECTDATA));
+    *count = n;
+    m_kbdEventCount = 0;
+}
+
+#endif // !ORBITER_DINPUT
 
 // ---------------------------------------------------------------------------
 // DirectInput-only implementations
