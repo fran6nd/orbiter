@@ -12,6 +12,17 @@
 #include "Orbitersdk.h"
 
 // key modifier list
+// These names overlap with SDL3's SDL_oldnames.h compatibility macros.
+// Undefine any prior SDL3 definitions before asserting Orbiter's values.
+#undef KMOD_LSHIFT
+#undef KMOD_RSHIFT
+#undef KMOD_SHIFT
+#undef KMOD_LCTRL
+#undef KMOD_RCTRL
+#undef KMOD_CTRL
+#undef KMOD_LALT
+#undef KMOD_RALT
+#undef KMOD_ALT
 #define KMOD_LSHIFT 0x0100
 #define KMOD_RSHIFT 0x0200
 #define KMOD_SHIFT  (KMOD_LSHIFT|KMOD_RSHIFT)

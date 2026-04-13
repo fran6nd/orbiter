@@ -2798,7 +2798,7 @@ void Orbiter::KbdInputBuffered_OnRunning (char *kstate, DIDEVICEOBJECTDATA *dod,
 
 		} else if (KEYMOD_SHIFT (kstate)) {  // Shift-key combinations (reserved for MFD control)
 
-			int id = (KEYDOWN (kstate, DIK_LSHIFT) ? 0 : 1);
+			int id = (KEYDOWN (kstate, OAPI_KEY_LSHIFT) ? 0 : 1);
 			g_pane->MFDConsumeKeyBuffered (id, key);
 
 		} else if (KEYMOD_ALT (kstate)) {    // ALT-Key combinations
