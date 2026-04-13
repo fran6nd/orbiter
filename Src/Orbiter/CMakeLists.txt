@@ -142,10 +142,14 @@ set(Orbiter_common_libs
 	$<TARGET_FILE:Orbitersdk>
 	$<TARGET_FILE:DlgCtrl>
 )
-set(Orbiter_libs
-	dxguid.lib
-	dinput8.lib
-)
+if(ORBITER_USE_SDL3)
+	set(Orbiter_libs SDL3::SDL3)
+else()
+	set(Orbiter_libs
+		dxguid.lib
+		dinput8.lib
+	)
+endif()
 
 set(Orbiter_depends
 	Orbitersdk
@@ -161,9 +165,19 @@ set_target_properties(Orbiter
 	RUNTIME_OUTPUT_DIRECTORY ${ORBITER_BINARY_ROOT_DIR}
 	OUTPUT_NAME Orbiter
 	VS_DEBUGGER_WORKING_DIRECTORY ${ORBITER_BINARY_ROOT_DIR}
-	COMPILE_DEFINITIONS "NOGRAPHICS;DIRECTINPUT_VERSION=0x0800"
 	FOLDER Core
 )
+
+# Base compile definitions (always present on Windows)
+target_compile_definitions(Orbiter PRIVATE
+	NOGRAPHICS
+	DIRECTINPUT_VERSION=0x0800
+)
+
+# When SDL3 is requested, expose the macro so platform-guarded code picks the right path.
+if(ORBITER_USE_SDL3)
+	target_compile_definitions(Orbiter PRIVATE ORBITER_USE_SDL3)
+endif()
 
 target_include_directories(Orbiter PUBLIC ${Orbiter_includes} ${TRACY_CLIENT_INCLUDE} ${imgui_SOURCE_DIR}/ ${imgui_SOURCE_DIR}/backends ${implot_SOURCE_DIR}/)
 
