@@ -747,13 +747,11 @@ HWND Orbiter::CreateRenderWindow (Config *pCfg, const char *scenario)
 	if (hRenderWnd) {
 		bActive = true;
 
-		// Create keyboard device (DInput path only; SDL3 handles keyboard natively)
-#if ORBITER_DINPUT
+		// Create keyboard device (DInput: acquires device; SDL3: no-op that always succeeds)
 		if (!pDI->CreateKbdDevice ()) {
 			CloseSession ();
 			return 0;
 		}
-#endif
 
 		// Create joystick device
 		if (pDI->CreateJoyDevice ())
@@ -2068,13 +2066,25 @@ HRESULT Orbiter::UserInput ()
 		}
 	}
 #else
-	// SDL3 keyboard events are handled in the event loop (future phase).
-	// For now, broadcast whatever ended up in simkstate via the Win32 path.
+	// SDL3 / non-DInput keyboard — state collected via DInput::OnKey() from MsgProc.
 	{
-		bool consume = BroadcastImmediateKeyboardEvent(simkstate);
-		if (!skipkbd && !consume) {
-			KbdInputImmediate_System(simkstate);
-			if (bRunning) KbdInputImmediate_OnRunning(simkstate);
+		DIDEVICEOBJECTDATA dod[64];
+		DWORD dwItems = 0;
+		ImGuiIO& io = ImGui::GetIO();
+
+		pDI->FlushKeyboard(simkstate, dod, &dwItems, 64);
+
+		if (!io.WantCaptureKeyboard) {
+			bool consume = BroadcastImmediateKeyboardEvent(simkstate);
+			if (!skipkbd && !consume) {
+				KbdInputImmediate_System(simkstate);
+				if (bRunning) KbdInputImmediate_OnRunning(simkstate);
+			}
+			BroadcastBufferedKeyboardEvent(simkstate, dod, dwItems);
+			if (!skipkbd) {
+				KbdInputBuffered_System(simkstate, dod, dwItems);
+				if (bRunning) KbdInputBuffered_OnRunning(simkstate, dod, dwItems);
+			}
 		}
 	}
 #endif // ORBITER_DINPUT
@@ -2106,21 +2116,19 @@ bool Orbiter::SendKbdBuffered(DWORD key, DWORD *mod, DWORD nmod, bool onRunningO
 {
 	if (onRunningOnly && !bRunning) return false;
 
-#if ORBITER_DINPUT
 	DIDEVICEOBJECTDATA dod;
 	dod.dwData = 0x80;
 	dod.dwOfs = key;
+	dod.dwTimeStamp = 0;
+	dod.uAppData    = 0;
 	char buffer[256];
 	memset (buffer, 0, 256);
-	for (int i = 0; i < nmod; i++)
+	for (DWORD i = 0; i < nmod; i++)
 		buffer[mod[i]] = 0x80;
 	BroadcastBufferedKeyboardEvent (buffer, &dod, 1);
 	KbdInputBuffered_System (buffer, &dod, 1);
 	KbdInputBuffered_OnRunning (buffer, &dod, 1);
 	return true;
-#else
-	return false;
-#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -2311,7 +2319,6 @@ void Orbiter::KbdInputImmediate_OnRunning (char *kstate)
 	}
 }
 
-#if ORBITER_DINPUT
 //-----------------------------------------------------------------------------
 // Name: KbdInputBuffered_System ()
 // Desc: General user keyboard buffered key interpretation. Processes keys
@@ -2375,9 +2382,6 @@ void Orbiter::KbdInputBuffered_System (char *kstate, DIDEVICEOBJECTDATA *dod, DW
 	}
 }
 
-#endif // ORBITER_DINPUT
-
-#if ORBITER_DINPUT
 //-----------------------------------------------------------------------------
 // Name: KbdInputBuffered_OnRunning ()
 // Desc: User keyboard buffered key interpretation in running simulation
@@ -2424,8 +2428,6 @@ void Orbiter::KbdInputBuffered_OnRunning (char *kstate, DIDEVICEOBJECTDATA *dod,
 		}
 	}
 }
-
-#endif // ORBITER_DINPUT
 
 //-----------------------------------------------------------------------------
 // Name: UserJoyInput_System ()
@@ -2545,7 +2547,6 @@ bool Orbiter::BroadcastImmediateKeyboardEvent (char *kstate)
 	return consume;
 }
 
-#if ORBITER_DINPUT
 void Orbiter::BroadcastBufferedKeyboardEvent (char *kstate, DIDEVICEOBJECTDATA *dod, DWORD n)
 {
 	for (DWORD i = 0; i < n; i++) {
@@ -2560,7 +2561,6 @@ void Orbiter::BroadcastBufferedKeyboardEvent (char *kstate, DIDEVICEOBJECTDATA *
 		if (consume) dod[i].dwData = 0; // remove key from process queue
 	}
 }
-#endif // ORBITER_DINPUT
 
 //-----------------------------------------------------------------------------
 // Name: MsgProc()
@@ -2576,15 +2576,36 @@ LRESULT Orbiter::MsgProc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 	case WM_ACTIVATE:
 		bActive = (wParam != WA_INACTIVE);
+#if !ORBITER_DINPUT
+		if (wParam == WA_INACTIVE)
+			pDI->ClearKeyboard(); // avoid stuck keys when losing focus
+#endif
 		return 0;
 
 	// *** User Keyboard Input ***
 	case WM_CHAR:
-	case WM_KEYDOWN:
-		if (ImGuiIO& io = ImGui::GetIO(); io.WantCaptureKeyboard) {
+		if (ImGuiIO& io = ImGui::GetIO(); io.WantCaptureKeyboard)
 			return 0;
-		}
+		break;
 
+	case WM_KEYDOWN:
+	case WM_KEYUP:
+		if (ImGuiIO& io = ImGui::GetIO(); io.WantCaptureKeyboard)
+			return 0;
+#if !ORBITER_DINPUT
+		{
+			// Translate Win32 scan code → OAPI_KEY_* and feed into DInput.
+			// Bits 16-23 of lParam hold the Set-1 base scan code.
+			// Bit 24 is the E0 extended-key flag; for extended keys the
+			// full DIK / OAPI_KEY value is (base | 0x80).
+			DWORD scan     = (lParam >> 16) & 0xFF;
+			bool  extended = (lParam & (1 << 24)) != 0;
+			DWORD oapi_key = (scan && scan < 0x80) ? (extended ? (scan | 0x80) : scan) : 0;
+			if (oapi_key)
+				pDI->OnKey(oapi_key, uMsg == WM_KEYDOWN);
+				// OnKey() suppresses duplicate buffered DOWN events for held keys.
+		}
+#endif
 		break;
 
 	// Mouse event handler
