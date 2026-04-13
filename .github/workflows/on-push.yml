@@ -29,3 +29,4 @@ jobs:
       os: ${{ matrix.os }}
       architecture: ${{ matrix.architecture }}
       sdl3: ${{ matrix.sdl3 == 'sdl3' }}
+      upload: true
