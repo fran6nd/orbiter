@@ -1024,7 +1024,7 @@ HWND Orbiter::CreateRenderWindow (Config *pCfg, const char *scenario)
 	if (pDI->joyprop.bThrottle && pCfg->CfgJoystickPrm.bThrottleIgnore) {
 		orbiter::JoystickState js;
 		if (pDI->PollJoystick(&js))
-			plZ4 = js.throttleValue(pDI->joyprop.ThrottleAxis) >> 3;
+			plZ4 = *(long*)((BYTE*)&js + pDI->joyprop.ThrottleOfs) >> 3;
 	}
 
 	return hRenderWnd;
@@ -2877,7 +2877,7 @@ void Orbiter::UserJoyInput_OnRunning (orbiter::JoystickState *js)
 	}
 
 	if (pDI->joyprop.bThrottle) { // main thrusters via throttle control
-		long lZ4 = js->throttleValue(pDI->joyprop.ThrottleAxis) >> 3;
+		long lZ4 = *(long*)((BYTE*)js + pDI->joyprop.ThrottleOfs) >> 3;
 		if (lZ4 != plZ4) {
 			if (ignorefirst) {
 				if (abs(lZ4-plZ4) > 10) ignorefirst = false;

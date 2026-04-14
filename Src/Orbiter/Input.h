@@ -6,9 +6,8 @@
 // Platform-agnostic input manager.
 //
 // On Windows without ORBITER_USE_SDL3: backed by DirectInput (Di7frame).
-// On Windows with  ORBITER_USE_SDL3 (or future non-Windows): keyboard
-// state is collected from WM_KEYDOWN/WM_KEYUP via OnKey(); joystick
-// support to be added in a later phase.
+// On Windows with  ORBITER_USE_SDL3: keyboard state is collected from
+// WM_KEYDOWN/WM_KEYUP via OnKey(); joystick via SDL3.
 // =======================================================================
 
 #ifndef __INPUT_H
@@ -49,15 +48,6 @@ struct DIDEVICEOBJECTDATA {
 
 class Orbiter;
 
-// ---------------------------------------------------------------------------
-// DInput — unified input manager.
-//
-// JoyProp is exposed on all platforms so that the joystick throttle/rudder
-// configuration lives in a single place.  On non-DInput builds the throttle
-// axis is surfaced through JoystickState::ThrottleAxis; ThrottleOfs is kept
-// for source-level compatibility but is unused outside the DInput back-end.
-// ---------------------------------------------------------------------------
-
 class DInput {
     friend class Orbiter;
 
@@ -66,14 +56,9 @@ public:
     ~DInput();
 
     struct JoyProp {
-        bool  bThrottle  = false;
-        bool  bRudder    = false;
-        // ThrottleAxis is the canonical cross-platform field.
-        // ThrottleOfs retains the original byte-offset-into-DIJOYSTATE2 value
-        // so that existing plugins reading joyprop.ThrottleOfs keep working.
-        orbiter::JoystickState::ThrottleAxis ThrottleAxis =
-            orbiter::JoystickState::ThrottleAxis::None;
-        int ThrottleOfs = 0;
+        bool bThrottle  = false;  // joystick has throttle control
+        bool bRudder    = false;  // joystick has rudder control
+        int  ThrottleOfs = 0;     // byte offset into JoystickState for the throttle axis
     };
 
 #if ORBITER_DINPUT

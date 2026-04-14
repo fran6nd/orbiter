@@ -175,7 +175,6 @@ static unsigned long SDLHatToAngle(Uint8 hat)
 
 bool DInput::CreateJoyDevice()
 {
-    using ThrottleAxis = orbiter::JoystickState::ThrottleAxis;
     Config *pcfg = orbiter->Cfg();
     if (!pcfg->CfgJoystickPrm.Joy_idx) return false; // 0 = disabled
 
@@ -201,27 +200,30 @@ bool DInput::CreateJoyDevice()
     joyprop.bRudder = (numAxes >= 6);
 
     // Throttle axis selection from config.
-    joyprop.bThrottle    = false;
-    joyprop.ThrottleAxis = ThrottleAxis::None;
-    joyprop.ThrottleOfs  = 0;
+    // ThrottleOfs is the byte offset into JoystickState for the chosen axis.
+    // JoystickState field layout matches the DIJOYSTATE2 prefix so the same
+    // offset works with both struct types.
+    joyprop.bThrottle   = false;
+    joyprop.ThrottleOfs = 0;
 
+    orbiter::JoystickState js2; // used only for offsetof-equivalent calculation
     switch (pcfg->CfgJoystickPrm.ThrottleAxis) {
     case 1: // Z-axis (axis index 2)
         if (numAxes >= 3) {
-            joyprop.bThrottle    = true;
-            joyprop.ThrottleAxis = ThrottleAxis::Z;
+            joyprop.bThrottle   = true;
+            joyprop.ThrottleOfs = (int)((BYTE*)&js2.lZ         - (BYTE*)&js2);
         }
         break;
     case 2: // Slider 0 (axis index 6)
         if (numAxes >= 7) {
-            joyprop.bThrottle    = true;
-            joyprop.ThrottleAxis = ThrottleAxis::Slider0;
+            joyprop.bThrottle   = true;
+            joyprop.ThrottleOfs = (int)((BYTE*)&js2.rglSlider[0] - (BYTE*)&js2);
         }
         break;
     case 3: // Slider 1 (axis index 7)
         if (numAxes >= 8) {
-            joyprop.bThrottle    = true;
-            joyprop.ThrottleAxis = ThrottleAxis::Slider1;
+            joyprop.bThrottle   = true;
+            joyprop.ThrottleOfs = (int)((BYTE*)&js2.rglSlider[1] - (BYTE*)&js2);
         }
         break;
     default:

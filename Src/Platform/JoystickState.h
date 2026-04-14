@@ -42,22 +42,6 @@ struct JoystickState {
     // ---------------------------------------------------------------------------
     unsigned char rgbButtons[128] = {};
 
-    // ---------------------------------------------------------------------------
-    // Throttle axis selection
-    // Replaces the byte-offset hack previously stored in DInput::JoyProp.
-    // ---------------------------------------------------------------------------
-    enum class ThrottleAxis { None, Z, Slider0, Slider1 };
-
-    // Returns the raw value of the selected throttle axis.
-    long throttleValue(ThrottleAxis ax) const noexcept {
-        switch (ax) {
-            case ThrottleAxis::Z:       return lZ;
-            case ThrottleAxis::Slider0: return rglSlider[0];
-            case ThrottleAxis::Slider1: return rglSlider[1];
-            default:                    return 0;
-        }
-    }
-
     // Resets all fields to their neutral (centred / released) state.
     void clear() noexcept {
         lX = lY = lZ = lRx = lRy = lRz = 0;
