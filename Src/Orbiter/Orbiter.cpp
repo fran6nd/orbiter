@@ -1343,16 +1343,6 @@ INT Orbiter::Run ()
 			case SDL_EVENT_QUIT:
 				sdlRunning = false;
 				break;
-			case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-				sdlRunning = false;
-				break;
-			case SDL_EVENT_WINDOW_FOCUS_LOST:
-				pDI->ClearKeyboard();
-				bActive = false;
-				break;
-			case SDL_EVENT_WINDOW_FOCUS_GAINED:
-				bActive = true;
-				break;
 			case SDL_EVENT_KEY_DOWN:
 			case SDL_EVENT_KEY_UP:
 				if (!ImGui::GetIO().WantCaptureKeyboard) {
