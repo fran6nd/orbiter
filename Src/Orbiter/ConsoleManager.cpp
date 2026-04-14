@@ -1,5 +1,6 @@
 #include "ConsoleManager.h"
 
+#ifdef _WIN32
 #include <windows.h>
 
 bool ConsoleManager::IsConsoleExclusive(void) {
@@ -14,3 +15,4 @@ void ConsoleManager::ShowConsole(bool show)
     if (wnd)
         ShowWindow(wnd, show ? SW_SHOW : SW_HIDE);
 }
+#endif // _WIN32
