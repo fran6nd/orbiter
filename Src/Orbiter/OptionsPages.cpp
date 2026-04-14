@@ -1218,6 +1218,13 @@ BOOL OptionsPage_Joystick::OnInitDialog(HWND hPage, WPARAM wParam, LPARAM lParam
 	g_pOrbiter->GetDInput()->GetJoysticks(&joylist, &ndev);
 	for (int i = 0; i < ndev; i++)
 		SendDlgItemMessage(hPage, IDC_OPT_JOY_DEVICE, CB_ADDSTRING, 0, (LPARAM)(joylist[i].tszProductName));
+#elif defined(ORBITER_USE_SDL3)
+	int sdlCount = 0;
+	SDL_JoystickID *sdlIds = SDL_GetJoysticks(&sdlCount);
+	for (int i = 0; i < sdlCount; i++)
+		SendDlgItemMessage(hPage, IDC_OPT_JOY_DEVICE, CB_ADDSTRING, 0,
+		                   (LPARAM)SDL_GetJoystickNameForID(sdlIds[i]));
+	SDL_free(sdlIds);
 #endif
 
 	const char* thmode[4] = { "<Keyboard only>", "Z-axis", "Slider 0", "Slider 1" };

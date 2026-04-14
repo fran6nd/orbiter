@@ -193,9 +193,28 @@ void DlgOptions::DrawJoystick()
 		}
 		ImGui::EndAnimatedCombo();
 	}
-#else
-	ImGui::TextDisabled("Joystick device selection not available (SDL3 build)");
+#elif defined(ORBITER_USE_SDL3)
+	int sdlCount = 0;
+	SDL_JoystickID *sdlIds = SDL_GetJoysticks(&sdlCount);
 	DWORD &jidx = g_pOrbiter->Cfg()->CfgJoystickPrm.Joy_idx;
+	if (jidx > 0 && jidx <= (DWORD)sdlCount)
+		preview = SDL_GetJoystickNameForID(sdlIds[jidx - 1]);
+
+	if (ImGui::BeginAnimatedCombo("##joydev", preview)) {
+		bool selected = jidx == 0;
+		if (ImGui::Selectable("<Disabled>", &selected)) jidx = 0;
+		if (selected) ImGui::SetItemDefaultFocus();
+		for (int i = 0; i < sdlCount; i++) {
+			selected = jidx == (DWORD)(i + 1);
+			if (ImGui::Selectable(SDL_GetJoystickNameForID(sdlIds[i]), &selected)) {
+				jidx = i + 1;
+				g_pOrbiter->OnOptionChanged(OPTCAT_JOYSTICK, OPTITEM_JOYSTICK_DEVICE);
+			}
+			if (selected) ImGui::SetItemDefaultFocus();
+		}
+		ImGui::EndAnimatedCombo();
+	}
+	SDL_free(sdlIds);
 #endif
 
 	ImGui::BeginDisabled(jidx == 0);
