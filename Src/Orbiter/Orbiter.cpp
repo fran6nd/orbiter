@@ -2168,6 +2168,9 @@ bool Orbiter::BeginTimeStep (bool running)
 		// standard time update
 		std::chrono::duration<double> time_delta = time_curr - time_prev;
 		deltat = time_delta.count();
+		// TimerMode 2: snap to 1 ms resolution, matching the original GetTickCount() behaviour.
+		if (pConfig->CfgDebugPrm.TimerMode == 2)
+			deltat = std::floor(deltat * 1000.0 + 0.5) / 1000.0;
 	}
 
 	if(deltat>0.1) deltat=0.1; // Prevent huge deltat when using breakpoints
