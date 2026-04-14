@@ -123,7 +123,7 @@ set(common_src
 )
 # imgui_impl_win32 is needed on all Windows builds (DInput and SDL3) because
 # the D3D render window and dialogs are still Win32 HWNDs in both cases.
-# imgui_impl_sdl3 is added on SDL3 builds for Phase 2+ (SDL window path).
+# imgui_impl_sdl3 is added on SDL3 builds for SDL event processing.
 if(WIN32)
 	list(APPEND common_src ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
 endif()

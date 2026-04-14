@@ -120,7 +120,7 @@ public:
 
     // Poll joystick — fills *state and returns true if data is available.
     // On the DInput path this translates DIJOYSTATE2 → JoystickState.
-    // On the SDL3 / stub path it always returns false (joystick not yet wired).
+    // On the SDL3 path this translates SDL_Joystick state → JoystickState.
     bool PollJoystick(orbiter::JoystickState *state);
 
     JoyProp joyprop;

@@ -373,7 +373,7 @@ private:
 	HINSTANCE       hInst;         // orbiter instance handle
 	HWND            hRenderWnd;    // render window handle (NULL if no render support)
 #ifdef ORBITER_USE_SDL3
-	struct SDL_Window *m_sdlWindow = nullptr; // SDL3 window (Phase 2+; null until created)
+	struct SDL_Window *m_sdlWindow = nullptr; // SDL3 window (null until session creates render window)
 #endif
 #ifdef _WIN32
 	HWND            hBk;           // background window handle (demo mode only)
