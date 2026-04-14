@@ -16,9 +16,6 @@
 #ifdef _WIN32
 #include "imgui_impl_win32.h"
 #endif
-#ifdef ORBITER_USE_SDL3
-#include "imgui_impl_sdl3.h"
-#endif
 #include "implot.h"
 #include "IconsFontAwesome6.h"
 #include <chrono>

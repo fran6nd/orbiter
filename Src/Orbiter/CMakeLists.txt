@@ -121,14 +121,10 @@ set(common_src
 	Orbiter.rc
 	Orbiter.ico
 )
-# imgui_impl_win32 is needed on all Windows builds (DInput and SDL3) because
-# the D3D render window and dialogs are still Win32 HWNDs in both cases.
-# imgui_impl_sdl3 is added on SDL3 builds for SDL event processing.
+# imgui_impl_win32 is used on all Windows builds (DInput and SDL3) because
+# the D3D render window and dialogs are Win32 HWNDs in both cases.
 if(WIN32)
 	list(APPEND common_src ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
-endif()
-if(ORBITER_USE_SDL3)
-	list(APPEND common_src ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp)
 endif()
 
 set(Orbiter_includes
